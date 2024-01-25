@@ -1,0 +1,12 @@
+{
+    "files.associations": {
+        "LoadBalancedChemistryModel.C": "cpp",
+        "StandardChemistryModel.C": "cpp",
+        "makeLoadBalancedChemistryModels.C": "cpp",
+        "BalanceReactModel.C": "cpp",
+        "baseDataContainer.C": "cpp",
+        "makeChemistrySolvers.C": "cpp",
+        "makeLoadBalancedChemistrySolvers.C": "cpp",
+        "BasicChemistryModels.C": "cpp"
+    }
+}

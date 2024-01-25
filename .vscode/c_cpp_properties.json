@@ -1,0 +1,40 @@
+{
+    "env":{
+        "WM_PROJECT_DIR": "/home/itvjg/OpenFOAM/OpenFOAM-v2306",
+        "WM_LABEL_SIZE":"32"
+    },
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "${WM_PROJECT_DIR}/src/finiteVolume/lnInclude",
+                "${WM_PROJECT_DIR}/src/OpenFOAM/lnInclude/",
+                "${WM_PROJECT_DIR}/src/OSspecific/POSIX/lnInclude",
+                "${WM_PROJECT_DIR}/src/meshTools/lnInclude/",
+                "${WM_PROJECT_DIR}/src/thermophysicalModels/SLGThermo/lnInclude",
+                "${WM_PROJECT_DIR}/src/lagrangian/basic/lnInclude",
+                "${WM_PROJECT_DIR}/src/lagrangian/intermediate/lnInclude",
+                "${WM_PROJECT_DIR}/src/thermophysicalModels/basic/lnInclude/",
+                "${WM_PROJECT_DIR}/src/thermophysicalModels/chemistryModel/lnInclude/",
+                "${WM_PROJECT_DIR}/src/transportModels/compressible/lnInclude",
+                "${WM_PROJECT_DIR}/src/thermophysicalModels/reactionThermo/lnInclude",
+                "${WM_PROJECT_DIR}/src/thermophysicalModels/specie/lnInclude/",
+                "${WM_PROJECT_DIR}/src/thermophysicalModels/thermophysicalProperties/lnInclude",
+                "${WM_PROJECT_DIR}/src/surfMesh/lnInclude",
+            ],
+            "defines": [
+                "linux64",
+                "WM_DP",
+                "WM_LABEL_SIZE=${WM_LABEL_SIZE}",
+                "NoRepository",
+                "DP"
+            ],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c17",
+            "cppStandard": "gnu++17",
+            "intelliSenseMode": "linux-gcc-x64"
+        }
+    ],
+    "version": 4
+}

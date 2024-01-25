@@ -1,0 +1,8 @@
+baseDataContainer/baseDataContainer.C
+
+chemistryModel/LoadBalancedChemistryModel/makeLoadBalancedChemistryModels.C
+
+chemistrySolver/makeLoadBalancedChemistrySolvers.C
+
+
+LIB = $(FOAM_USER_LIBBIN)/libloadBalancedChemistryModel
