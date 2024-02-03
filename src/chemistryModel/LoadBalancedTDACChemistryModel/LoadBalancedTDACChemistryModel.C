@@ -1,0 +1,1413 @@
+/*---------------------------------------------------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     |
+    \\  /    A nd           | www.openfoam.com
+     \\/     M anipulation  |
+-------------------------------------------------------------------------------
+    Copyright (C) 2011-2017 OpenFOAM Foundation
+    Copyright (C) 2020-2021,2023 OpenCFD Ltd.
+-------------------------------------------------------------------------------
+License
+    This file is part of OpenFOAM.
+
+    OpenFOAM is free software: you can redistribute it and/or modify it
+    under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    OpenFOAM is distributed in the hope that it will be useful, but WITHOUT
+    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+    FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+    for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
+
+\*---------------------------------------------------------------------------*/
+
+#include "LoadBalancedTDACChemistryModel.H"
+#include "UniformField.H"
+#include "localEulerDdtScheme.H"
+
+
+
+template<class ReactionThermo, class ThermoType>
+Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::LoadBalancedTDACChemistryModel
+(
+    ReactionThermo& thermo
+)
+:
+    StandardChemistryModel<ReactionThermo, ThermoType>(thermo),
+    variableTimeStep_
+    (
+        this->mesh().time().controlDict().getOrDefault
+        (
+            "adjustTimeStep",
+            false
+        )
+     || fv::localEulerDdt::enabled(this->mesh())
+    ),
+    timeSteps_(0),
+    NsDAC_(this->nSpecie_),
+    completeC_(this->nSpecie_, 0),
+    reactionsDisabled_(this->reactions_.size(), false),
+    specieComp_(this->nSpecie_),
+    completeToSimplifiedIndex_(this->nSpecie_, -1),
+    simplifiedToCompleteIndex_(this->nSpecie_),
+    tabulationResults_
+    (
+        IOobject
+        (
+            thermo.phasePropertyName("TabulationResults"),
+            this->time().timeName(),
+            this->mesh(),
+            IOobject::NO_READ,
+            IOobject::AUTO_WRITE
+        ),
+        this->mesh(),
+        dimensionedScalar(dimless, Zero)
+    )
+{
+    basicSpecieMixture& composition = this->thermo().composition();
+
+    // Store the species composition according to the species index
+    speciesTable speciesTab = composition.species();
+
+    autoPtr<speciesCompositionTable> specCompPtr
+    (
+        dynamicCast<const reactingMixture<ThermoType>>(this->thermo())
+       .specieComposition()
+    );
+
+    forAll(specieComp_, i)
+    {
+        specieComp_[i] = (specCompPtr.ref())[this->Y()[i].member()];
+    }
+
+    mechRed_ = chemistryReductionMethod<ReactionThermo, ThermoType>::New
+    (
+        *this,
+        *this
+    );
+
+    // When the mechanism reduction method is used, the 'active' flag for every
+    // species should be initialized (by default 'active' is true)
+    if (mechRed_->active())
+    {
+        forAll(this->Y(), i)
+        {
+            IOobject header
+            (
+                this->Y()[i].name(),
+                this->mesh().time().timeName(),
+                this->mesh(),
+                IOobject::NO_READ
+            );
+
+            // Check if the species file is provided, if not set inactive
+            // and NO_WRITE
+            if (!header.typeHeaderOk<volScalarField>(true))
+            {
+                composition.setInactive(i);
+                this->Y()[i].writeOpt(IOobject::NO_WRITE);
+            }
+        }
+    }
+
+    tabulation_ = chemistryTabulationMethod<ReactionThermo, ThermoType>::New
+    (
+        *this,
+        *this
+    );
+
+    if (mechRed_->log())
+    {
+        cpuReduceFile_ = logFile("cpu_reduce.out");
+        nActiveSpeciesFile_ = logFile("nActiveSpecies.out");
+    }
+
+    if (tabulation_->log())
+    {
+        cpuAddFile_ = logFile("cpu_add.out");
+        cpuGrowFile_ = logFile("cpu_grow.out");
+        cpuRetrieveFile_ = logFile("cpu_retrieve.out");
+    }
+
+    if (mechRed_->log() || tabulation_->log())
+    {
+        cpuSolveFile_ = logFile("cpu_solve.out");
+    }
+}
+
+
+template<class ReactionThermo, class ThermoType>
+void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::addCell
+(
+    const scalarField& phiq,
+    const scalar& T,
+    const scalar& p,
+    const scalar& rho,
+    const scalar& deltaT,
+    const label& celli
+)
+{
+    label MyProcNo = Pstream::myProcNo();
+
+    // Number of additional properties stored in phiq.
+    // Default is pressure and temperatur, if variableTimeStep is active
+    // deltaT is added as well
+    label nAdditions = 2;
+    if (variableTimeStep())
+        nAdditions = 3;
+
+    TDACDataContainer cData(this->nSpecie_,nAdditions);
+
+    cData.phiq() = phiq;
+
+    cData.T() = T;
+
+    cData.p() = p;
+
+    cData.rho() = rho;
+
+    cData.deltaT() = deltaT;
+
+    cData.deltaTChem() = this->deltaTChem_[celli];
+
+    cData.proc() = MyProcNo;
+
+    cData.cellID() = celli;
+
+    cellDataList_.append(cData);
+}
+
+
+template<class ReactionThermo, class ThermoType>
+void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::cellsToSend
+(
+    const DynamicList<TDACDataContainer>& cellList,
+    const scalar cpuTimeToSend,
+    const label& start,
+    label& end
+)
+{
+    end = cellList.size();
+    scalar cpuTime = 0;
+    
+    // go from start index and add as many particles until the cpuTimeToSend
+    // is reached
+    for (label i=start; i < cellList.size(); i++)
+    {
+        if (cpuTime >= cpuTimeToSend)
+        {
+            end = i;
+            break;
+        }
+
+        cpuTime += cellList[i].cpuTime();
+    }
+}
+
+
+template<class ReactionThermo, class ThermoType>
+Foam::Tuple2
+<
+    Foam::List<Foam::Tuple2<scalar,label>>,
+    Foam::List<label>
+>
+Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::getProcessorBalancing()
+{
+    // Number of processors 
+    const scalar numProcs = Pstream::nProcs();
+
+    auto sortedCpuTimeOnProcessors = getSortedCPUTimesOnProcessor();
+
+    // calculate average time spent on each cpu
+    scalar averageCpuTime = 0;
+    forAll(sortedCpuTimeOnProcessors,i)
+    {
+        averageCpuTime += sortedCpuTimeOnProcessors[i].first;
+    }
+    averageCpuTime /= numProcs;
+    
+    Info << "Average CPU time : "<<averageCpuTime<<endl;
+
+    // list of the distributed load for all processors
+    List<DynamicList<Tuple2<scalar,label>>> distributedLoadAllProcs(numProcs);
+    
+    // list of processors to receive data from
+    List<DynamicList<label>> receiveDataFromProc(numProcs);
+
+    // balance the load by calculating the percentages to be send 
+    forAll(sortedCpuTimeOnProcessors,i)
+    {
+        const label procI = sortedCpuTimeOnProcessors[i].second.first();
+        const label nCellsOnProcI = sortedCpuTimeOnProcessors[i].second.second();
+
+        // List of processors to send information to
+        DynamicList<Tuple2<scalar,label>>& sendLoadList = 
+            distributedLoadAllProcs[procI];
+        
+        // Reserve space
+        sendLoadList.reserve
+        (
+            std::floor(0.5*(numProcs-i))
+        );
+        
+        
+        const scalar cpuTimeProcI = sortedCpuTimeOnProcessors[i].first;
+        
+        scalar cpuTimeOverhead = cpuTimeProcI - averageCpuTime;
+        
+        
+        // Loop over the other processors and distribute the load
+        // in reverse order
+        for (label k=numProcs-1; k > 0; k--)
+        {
+            const label procK = sortedCpuTimeOnProcessors[k].second.first();
+            
+            const scalar cpuTimeProcK = sortedCpuTimeOnProcessors[k].first;
+            
+            const scalar capacityOfProcK = averageCpuTime - cpuTimeProcK;
+            
+            if (capacityOfProcK <= 0)
+                continue;
+            
+            const scalar newCapacity = capacityOfProcK - cpuTimeOverhead;
+            
+            // Check that the number of particles to send is greater than 1
+            if ((cpuTimeOverhead/cpuTimeProcI*nCellsOnProcI) < 2)
+                continue;
+            
+
+            if (newCapacity > 0)
+            {                
+                // add the cpuTimeOverhead to the load of this processor
+                sortedCpuTimeOnProcessors[k].first += cpuTimeOverhead;
+                sortedCpuTimeOnProcessors[i].first -= cpuTimeOverhead;
+                
+                // Processor procI sends information to procK
+                // Therefore the receive data list of procK has to be updated
+                receiveDataFromProc[procK].reserve(0.5*numProcs);
+                receiveDataFromProc[procK].append(procI);
+
+                sendLoadList.append
+                (
+                    Tuple2<scalar,label>
+                    (
+                        cpuTimeOverhead/cpuTimeProcI,
+                        procK
+                    )
+                );
+
+                cpuTimeOverhead = 0;
+
+                break;
+            }
+            else
+            {
+                sortedCpuTimeOnProcessors[k].first += capacityOfProcK;
+                sortedCpuTimeOnProcessors[i].first -= capacityOfProcK;
+                cpuTimeOverhead -= capacityOfProcK;
+
+                // Processor procI sends information to procK
+                // Therefore the receive data list of procK has to be updated
+                receiveDataFromProc[procK].reserve(0.5*numProcs);
+                receiveDataFromProc[procK].append(procI);
+                
+                sendLoadList.append
+                (
+                    Tuple2<scalar,label>
+                    (
+                        capacityOfProcK/cpuTimeProcI,
+                        sortedCpuTimeOnProcessors[k].second.first()
+                    )
+                );
+            }
+        }
+    }
+    
+    // return only the list for the current processor
+    return Tuple2
+    <
+        List<Foam::Tuple2<scalar,label>>,
+        List<label>
+    >
+    (
+        distributedLoadAllProcs[Pstream::myProcNo()],
+        receiveDataFromProc[Pstream::myProcNo()]
+    );
+}
+
+
+template<class ReactionThermo, class ThermoType>
+Foam::List<std::pair<scalar,Foam::Pair<label>>> 
+Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::getSortedCPUTimesOnProcessor() const
+{
+    // Number of processors 
+    const scalar numProcs = Pstream::nProcs();
+        
+    // Gather the data from all processors
+    List<Tuple2<scalar,label>> cpuTimeOnProcessors(numProcs);
+    cpuTimeOnProcessors[Pstream::myProcNo()].first() = totalCpuTime_;
+    cpuTimeOnProcessors[Pstream::myProcNo()].second() = cellDataList_.size();
+
+
+    Pstream::gatherList(cpuTimeOnProcessors);
+    Pstream::scatterList(cpuTimeOnProcessors);
+
+    // use std::pair for std::sort algorithm
+    // Data structure is:
+    // 1. processor ID
+    // 2. Foam::Pair with:
+    //    - 1. processor ID
+    //    - 2. number of cells stored in cellDataList
+    List<std::pair<scalar,Pair<label>>> sortedCpuTimeOnProcessors(numProcs);
+    
+    forAll(sortedCpuTimeOnProcessors,i)
+    {
+        sortedCpuTimeOnProcessors[i].first = cpuTimeOnProcessors[i].first();
+        sortedCpuTimeOnProcessors[i].second.first() = i;
+        sortedCpuTimeOnProcessors[i].second.second() = cpuTimeOnProcessors[i].second();
+    }
+    
+    // sort using std::sort()
+    // first entry has largest cpu time --> descending order
+    std::stable_sort
+    (
+        sortedCpuTimeOnProcessors.begin(), 
+        sortedCpuTimeOnProcessors.end(),
+        std::greater<std::pair<scalar,Pair<label>>>()
+    );
+
+    return sortedCpuTimeOnProcessors;
+}
+
+
+template<class ReactionThermo, class ThermoType>
+void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::updateTotalCpuTime
+(
+    const DynamicList<TDACDataContainer>& reactCellList
+)
+{
+    // Calculate the total time spent solving the particles on this processor
+    totalCpuTime_  = 0;
+    
+    for (const auto& obj : reactCellList)
+        totalCpuTime_ += obj.cpuTime();
+}
+
+
+template<class ReactionThermo, class ThermoType>
+void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solveCell
+(
+    TDACDataContainer& cellData
+)
+{
+
+    // Store total time waiting to attribute to add or grow
+    scalar timeTmp = clockTime_.timeIncrement();
+
+    // Note: first nSpecie entries are the Yi values in phiq
+    List<scalar>& c = cellData.c();
+    List<scalar>& c0 = cellData.c0();
+    for (label i=0; i<this->nSpecie_; i++)
+    {
+        c[i] = cellData.rho()*cellData.phiq()[i]/this->specieThermo_[i].W();
+        c0[i] = c[i];
+    }
+
+    const bool reduced = mechRed()->active();
+
+    scalar timeLeft = cellData.deltaT();
+
+    scalar reduceMechCpuTime_ = 0;
+
+    // Average number of active species
+    scalar nActiveSpecies = 0;
+    scalar nAvg = 0;
+
+    if (reduced)
+    {
+        // Reduce mechanism change the number of species (only active)
+        mechRed()->reduceMechanism(c, cellData.T(), cellData.p());
+        nActiveSpecies += mechRed()->NsSimp();
+        ++nAvg;
+        scalar timeIncr = clockTime_.timeIncrement();
+        reduceMechCpuTime_ += timeIncr;
+        timeTmp += timeIncr;
+    }
+
+    // Calculate the chemical source terms
+    while (timeLeft > SMALL)
+    {
+        scalar dt = timeLeft;
+        if (reduced)
+        {
+            // completeC_ used in the overridden ODE methods
+            // to update only the active species
+            completeC() = c;
+
+            // Solve the reduced set of ODE
+            this->solve
+            (
+                simplifiedC(), cellData.T(), cellData.T(), dt, cellData.deltaTChem()
+            );
+
+            for (label i=0; i<NsDAC_; ++i)
+            {
+                c[simplifiedToCompleteIndex_[i]] = simplifiedC()[i];
+            }
+        }
+        else
+        {
+            this->solve(c, cellData.T(), cellData.p(), dt, cellData.deltaTChem());
+        }
+        timeLeft -= dt;
+    }
+
+    {
+        scalar timeIncr = clockTime_.timeIncrement();
+        solveChemistryCpuTime_ += timeIncr;
+    }
+
+    // When operations are done and if mechanism reduction is active,
+    // the number of species (which also affects nEqns) is set back
+    // to the total number of species (stored in the mechRed object)
+    if (reduced)
+    {
+        this->nSpecie_ = mechRed()->nSpecie();
+    }
+}
+
+
+template<class ReactionThermo, class ThermoType>
+void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solveCellList
+(
+    UList<TDACDataContainer>& cellList
+)
+{    
+    for(TDACDataContainer& cellData : cellList)
+    {
+        // We cannot use here cpuTimeIncrement() of OpenFOAM as this 
+        // returns only measurements in 100Hz or 1000Hz intervals depending
+        // on the installed kernel 
+        auto start = std::chrono::high_resolution_clock::now();
+
+        solveCell
+        (
+            cellData
+        );
+        
+        auto end = std::chrono::high_resolution_clock::now();
+        
+        auto duration = (std::chrono::duration_cast<std::chrono::microseconds>(end-start));
+
+        // Add the time required to solve this particle to the list 
+        // as seconds
+        cellData.cpuTime() = duration.count()*1.0E-6;
+    }
+}
+
+
+template<class ReactionThermo, class ThermoType>
+template<class DeltaTType>
+Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solve
+(
+    const DeltaTType& deltaT
+)
+{
+    // if it is not a prallel run exit with an error
+    if (!Pstream::parRun())
+        FatalError 
+            << "Dynamic load balancing can only be activated for parallel "
+            << "simulations." << nl
+            << "Please run the simulation in parallel"
+            << exit(FatalError);
+
+
+
+    // Increment counter of time-step
+    timeSteps_++;
+
+    const bool reduced = mechRed()->active();
+
+    label nAdditionalEqn = (variableTimeStep() ? 1 : 0);
+
+    basicSpecieMixture& composition = this->thermo().composition();
+
+    // CPU time analysis
+    clockTime_= clockTime();
+    clockTime_.timeIncrement();
+    reduceMechCpuTime_ = 0;
+    addNewLeafCpuTime_ = 0;
+    growCpuTime_ = 0;
+    solveChemistryCpuTime_ = 0;
+    searchISATCpuTime_ = 0;
+
+    this->resetTabulationResults();
+
+    // Average number of active species
+    scalar nActiveSpecies = 0;
+    scalar nAvg = 0;
+
+    BasicChemistryModel<ReactionThermo>::correct();
+
+    scalar deltaTMin = GREAT;
+
+    if (!this->chemistry_)
+    {
+        return deltaTMin;
+    }
+
+    tmp<volScalarField> trho(this->thermo().rho());
+    const scalarField& rho = trho();
+
+    // Reserve at least enough space for all cells on the local mesh
+    cellDataList_.reserve(rho.size());
+
+    const scalarField& T = this->thermo().T();
+    const scalarField& p = this->thermo().p();
+
+    scalarField c(this->nSpecie_);
+    scalarField c0(this->nSpecie_);
+
+    // Composition vector (Yi, T, p)
+    scalarField phiq(this->nEqns() + nAdditionalEqn);
+
+    scalarField Rphiq(this->nEqns() + nAdditionalEqn);
+
+    forAll(rho, celli)
+    {
+        const scalar rhoi = rho[celli];
+        scalar pi = p[celli];
+        scalar Ti = T[celli];
+
+        for (label i=0; i<this->nSpecie_; i++)
+        {
+            const volScalarField& Yi = this->Y_[i];
+            c[i] = rhoi*Yi[celli]/this->specieThermo_[i].W();
+            c0[i] = c[i];
+            phiq[i] = Yi[celli];
+        }
+        phiq[this->nSpecie()] = Ti;
+        phiq[this->nSpecie() + 1] = pi;
+        if (variableTimeStep())
+        {
+            phiq[this->nSpecie() + 2] = deltaT[celli];
+        }
+
+        // Not sure if this is necessary
+        Rphiq = Zero;
+
+        clockTime_.timeIncrement();
+
+        // When tabulation is active (short-circuit evaluation for retrieve)
+        // It first tries to retrieve the solution of the system with the
+        // information stored through the tabulation method
+        if (tabulation_->active() && tabulation_->retrieve(phiq, Rphiq))
+        {
+            // Retrieved solution stored in Rphiq
+            for (label i=0; i<this->nSpecie(); ++i)
+            {
+                c[i] = rhoi*Rphiq[i]/this->specieThermo_[i].W();
+            }
+
+            searchISATCpuTime_ += clockTime_.timeIncrement();
+        
+            // Set the RR vector (used in the solver)
+            for (label i=0; i<this->nSpecie_; ++i)
+            {
+                this->RR_[i][celli] =
+                    (c[i] - c0[i])*this->specieThermo_[i].W()/deltaT[celli];
+            }
+        }
+        // This position is reached when tabulation is not used OR
+        // if the solution is not retrieved.
+        // In the latter case, it adds the information for later compuation
+        // with the load balanced method
+        else
+        {
+            addCell(phiq,Ti,pi,rhoi,deltaT[celli]);
+        }
+    }
+
+    // ========================================================================
+    // Solve for cells that were not found in the table
+    // ========================================================================
+
+    // If it is solved the first time, computational statistics have to be 
+    // gathered first
+    if (firstTime_)
+    {
+        solveCellList(cellDataList_);
+        updateTotalCpuTime(cellDataList_); 
+        firstTime_ = false;
+    }
+    else
+    {
+        // Get percentage of particles to send/receive from other processors
+        auto sendAndReceiveData = getProcessorBalancing();
+
+        const List<Tuple2<scalar,label>>& sendDataInfo = sendAndReceiveData.first();
+        const List<label>& recvProc = sendAndReceiveData.second();
+
+        PstreamBuffers pBufs(Pstream::commsTypes::nonBlocking);
+        
+        // indices of the reactCellList to create the sub lists to send 
+        label start = 0;
+        
+        // Send all particles 
+        for (auto& sendDataInfoI : sendDataInfo)
+        {
+            const scalar percToSend = sendDataInfoI.first();
+            const label toProc = sendDataInfoI.second();
+            
+            label end = cellDataList_.size();
+
+            cellsToSend
+            (
+                cellDataList_,
+                totalCpuTime_*percToSend,
+                start,
+                end
+            );
+            
+            // send particles 
+            UOPstream toBuffer(toProc,pBufs);
+            label dataSize = end - start;
+            toBuffer << dataSize;
+            for (label i=start; i < end; i++)
+            {
+                toBuffer << cellDataList_[i];
+            }
+            
+            start = end;
+        }
+        
+        // Set local to compute particle list
+        SubList<TDACDataContainer> localToComputeParticles
+        (
+            cellDataList_,
+            cellDataList_.size()-start,
+            start
+        );
+
+        pBufs.finishedSends();
+
+        DynamicList<TDACDataContainer> processorCells;
+        
+        List<label> receivedDataSizes(recvProc.size());
+        
+        // Read the received information
+        forAll(recvProc,i)
+        {
+            label procI = recvProc[i];
+            UIPstream fromBuffer(procI,pBufs);
+            label dataSize;
+            fromBuffer >> dataSize;
+            receivedDataSizes[i] = dataSize;
+            processorCells.reserve(processorCells.size()+dataSize);
+            
+            for (label k=0; k < dataSize; k++)
+            {
+                TDACDataContainer p(fromBuffer);
+                processorCells.append(std::move(p));
+            }
+        }    
+
+        // Start solving local to compute particles
+        solveCellList(localToComputeParticles);
+
+        // Solve the chemistry on processor particles
+        solveCellList(processorCells);
+
+        // Send the information back 
+        // Note: Now the processors to which we originally had send informations
+        //       are the ones we receive from and vice versa 
+        
+        pBufs.clear();
+        
+        label pI = 0;
+        
+        forAll(recvProc,i)
+        {
+            label procI = recvProc[i];
+            UOPstream toBuffer(procI,pBufs);
+            
+            toBuffer << receivedDataSizes[i];
+            
+            for (label k=0; k < receivedDataSizes[i]; k++)
+                toBuffer << processorCells[pI++];
+        }
+        
+        pBufs.finishedSends();
+        
+        start = 0;
+        // Receive the particles --> now the sendDataInfo becomes the receive info
+        for (auto& sendDataInfoI : sendDataInfo)
+        {
+            const label fromProc = sendDataInfoI.second();
+
+            // send particles 
+            UIPstream fromBuffer(fromProc,pBufs);
+            label dataSize;
+            fromBuffer >> dataSize;
+            
+            label end = start + dataSize;
+            
+            for (label i=start; i < end; i++)
+                fromBuffer >> cellDataList_[i];
+            
+            start = end;
+        }
+
+        updateTotalCpuTime(cellDataList_); 
+    }
+    // ========================================================================
+    //                      Update Table
+    // ========================================================================
+
+    for (const auto& cData : cellDataList_)
+    {
+        const label celli = cData.cellID();
+
+        const List<scalar>& c = cData.c();
+        const List<scalar>& c0 = cData.c0();
+
+        // If tabulation is used, we add the information computed here to
+        // the stored points (either expand or add)
+        if (tabulation_->active())
+        {
+            // Not sure if this is necessary
+            Rphiq = Zero;
+
+            forAll(c, i)
+            {
+                Rphiq[i] = c[i]/cData.rho()*this->specieThermo_[i].W();
+            }
+            if (variableTimeStep())
+            {
+                Rphiq[Rphiq.size()-3] = cData.T();
+                Rphiq[Rphiq.size()-2] = cData.p();
+                Rphiq[Rphiq.size()-1] = cData.deltaT();
+            }
+            else
+            {
+                Rphiq[Rphiq.size()-2] = cData.T();
+                Rphiq[Rphiq.size()-1] = cData.p();
+            }
+            label growOrAdd =
+                tabulation_->add(phiq, Rphiq, cData.rho(), cData.deltaT());
+
+            if (growOrAdd)
+            {
+                this->setTabulationResultsAdd(celli);
+                addNewLeafCpuTime_ += clockTime_.timeIncrement() + cData.cpuTime();
+            }
+            else
+            {
+                this->setTabulationResultsGrow(celli);
+                growCpuTime_ += clockTime_.timeIncrement() + cData.cpuTime();
+            }
+        }
+
+        deltaTMin = min(this->deltaTChem_[celli], deltaTMin);
+
+        this->deltaTChem_[celli] =
+            min(this->deltaTChem_[celli], this->deltaTChemMax_);
+
+        // Set the RR vector (used in the solver)
+        for (label i=0; i<this->nSpecie_; ++i)
+        {
+            this->RR_[i][celli] =
+                (c[i] - c0[i])*this->specieThermo_[i].W()/deltaT[celli];
+        }
+    }
+  
+
+    if (mechRed_->log() || tabulation_->log())
+    {
+        cpuSolveFile_()
+            << this->time().timeOutputValue()
+            << "    " << solveChemistryCpuTime_ << endl;
+    }
+
+    if (mechRed_->log())
+    {
+        cpuReduceFile_()
+            << this->time().timeOutputValue()
+            << "    " << reduceMechCpuTime_ << endl;
+    }
+
+    if (tabulation_->active())
+    {
+        // Every time-step, look if the tabulation should be updated
+        tabulation_->update();
+
+        // Write the performance of the tabulation
+        tabulation_->writePerformance();
+
+        if (tabulation_->log())
+        {
+            cpuRetrieveFile_()
+                << this->time().timeOutputValue()
+                << "    " << searchISATCpuTime_ << endl;
+
+            cpuGrowFile_()
+                << this->time().timeOutputValue()
+                << "    " << growCpuTime_ << endl;
+
+            cpuAddFile_()
+                << this->time().timeOutputValue()
+                << "    " << addNewLeafCpuTime_ << endl;
+        }
+    }
+
+    if (reduced && nAvg && mechRed_->log())
+    {
+        // Write average number of species
+        nActiveSpeciesFile_()
+            << this->time().timeOutputValue()
+            << "    " << nActiveSpecies/nAvg << endl;
+    }
+
+    if (reduced && Pstream::parRun())
+    {
+        List<bool> active(composition.active());
+        Pstream::listCombineReduce(active, orEqOp<bool>());
+
+        forAll(active, i)
+        {
+            if (active[i])
+            {
+                composition.setActive(i);
+            }
+        }
+    }
+
+    forAll(this->Y(), i)
+    {
+        if (composition.active(i))
+        {
+            this->Y()[i].writeOpt(IOobject::AUTO_WRITE);
+        }
+    }
+
+    return deltaTMin;
+}
+
+
+template<class ReactionThermo, class ThermoType>
+Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solve
+(
+    const scalar deltaT
+)
+{
+    // Don't allow the time-step to change more than a factor of 2
+    return min
+    (
+        this->solve<UniformField<scalar>>(UniformField<scalar>(deltaT)),
+        2*deltaT
+    );
+}
+
+
+template<class ReactionThermo, class ThermoType>
+Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solve
+(
+    const scalarField& deltaT
+)
+{
+    return this->solve<scalarField>(deltaT);
+}
+
+
+// ===========================================================================
+//                      Functions Taken from TDAC Model
+// ===========================================================================
+
+
+template<class ReactionThermo, class ThermoType>
+void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::omega
+(
+    const scalarField& c, // Contains all species even when mechRed is active
+    const scalar T,
+    const scalar p,
+    scalarField& dcdt
+) const
+{
+    const bool reduced = mechRed_->active();
+
+    scalar pf, cf, pr, cr;
+    label lRef, rRef;
+
+    dcdt = Zero;
+
+    forAll(this->reactions_, i)
+    {
+        if (!reactionsDisabled_[i])
+        {
+            const Reaction<ThermoType>& R = this->reactions_[i];
+
+            scalar omegai = omega
+            (
+                R, c, T, p, pf, cf, lRef, pr, cr, rRef
+            );
+
+            forAll(R.lhs(), s)
+            {
+                label si = R.lhs()[s].index;
+                if (reduced)
+                {
+                    si = completeToSimplifiedIndex_[si];
+                }
+
+                const scalar sl = R.lhs()[s].stoichCoeff;
+                dcdt[si] -= sl*omegai;
+            }
+            forAll(R.rhs(), s)
+            {
+                label si = R.rhs()[s].index;
+                if (reduced)
+                {
+                    si = completeToSimplifiedIndex_[si];
+                }
+
+                const scalar sr = R.rhs()[s].stoichCoeff;
+                dcdt[si] += sr*omegai;
+            }
+        }
+    }
+}
+
+
+template<class ReactionThermo, class ThermoType>
+Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::omega
+(
+    const Reaction<ThermoType>& R,
+    const scalarField& c, // Contains all species even when mechRed is active
+    const scalar T,
+    const scalar p,
+    scalar& pf,
+    scalar& cf,
+    label& lRef,
+    scalar& pr,
+    scalar& cr,
+    label& rRef
+) const
+{
+    const scalar kf = R.kf(p, T, c);
+    const scalar kr = R.kr(kf, p, T, c);
+
+    const label Nl = R.lhs().size();
+    const label Nr = R.rhs().size();
+
+    label slRef = 0;
+    lRef = R.lhs()[slRef].index;
+
+    pf = kf;
+    for (label s=1; s<Nl; s++)
+    {
+        const label si = R.lhs()[s].index;
+
+        if (c[si] < c[lRef])
+        {
+            const scalar exp = R.lhs()[slRef].exponent;
+            pf *= pow(max(c[lRef], 0.0), exp);
+            lRef = si;
+            slRef = s;
+        }
+        else
+        {
+            const scalar exp = R.lhs()[s].exponent;
+            pf *= pow(max(c[si], 0.0), exp);
+        }
+    }
+    cf = max(c[lRef], 0.0);
+
+    {
+        const scalar exp = R.lhs()[slRef].exponent;
+        if (exp < 1)
+        {
+            if (cf > SMALL)
+            {
+                pf *= pow(cf, exp - 1);
+            }
+            else
+            {
+                pf = 0;
+            }
+        }
+        else
+        {
+            pf *= pow(cf, exp - 1);
+        }
+    }
+
+    label srRef = 0;
+    rRef = R.rhs()[srRef].index;
+
+    // Find the matrix element and element position for the rhs
+    pr = kr;
+    for (label s=1; s<Nr; s++)
+    {
+        const label si = R.rhs()[s].index;
+        if (c[si] < c[rRef])
+        {
+            const scalar exp = R.rhs()[srRef].exponent;
+            pr *= pow(max(c[rRef], 0.0), exp);
+            rRef = si;
+            srRef = s;
+        }
+        else
+        {
+            const scalar exp = R.rhs()[s].exponent;
+            pr *= pow(max(c[si], 0.0), exp);
+        }
+    }
+    cr = max(c[rRef], 0.0);
+
+    {
+        const scalar exp = R.rhs()[srRef].exponent;
+        if (exp < 1)
+        {
+            if (cr > SMALL)
+            {
+                pr *= pow(cr, exp - 1);
+            }
+            else
+            {
+                pr = 0;
+            }
+        }
+        else
+        {
+            pr *= pow(cr, exp - 1);
+        }
+    }
+
+    return pf*cf - pr*cr;
+}
+
+
+template<class ReactionThermo, class ThermoType>
+void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::derivatives
+(
+    const scalar time,
+    const scalarField& c,
+    scalarField& dcdt
+) const
+{
+    const bool reduced = mechRed_->active();
+
+    const scalar T = c[this->nSpecie_];
+    const scalar p = c[this->nSpecie_ + 1];
+
+    if (reduced)
+    {
+        // When using DAC, the ODE solver submit a reduced set of species the
+        // complete set is used and only the species in the simplified mechanism
+        // are updated
+        this->c_ = completeC_;
+
+        // Update the concentration of the species in the simplified mechanism
+        // the other species remain the same and are used only for third-body
+        // efficiencies
+        for (label i=0; i<NsDAC_; i++)
+        {
+            this->c_[simplifiedToCompleteIndex_[i]] = max(c[i], 0.0);
+        }
+    }
+    else
+    {
+        for (label i=0; i<this->nSpecie(); i++)
+        {
+            this->c_[i] = max(c[i], 0.0);
+        }
+    }
+
+    omega(this->c_, T, p, dcdt);
+
+    // Constant pressure
+    // dT/dt = ...
+    scalar rho = 0;
+    for (label i=0; i<this->c_.size(); i++)
+    {
+        const scalar W = this->specieThermo_[i].W();
+        rho += W*this->c_[i];
+    }
+
+    scalar cp = 0;
+    for (label i=0; i<this->c_.size(); i++)
+    {
+        // cp function returns [J/(kmol K)]
+        cp += this->c_[i]*this->specieThermo_[i].cp(p, T);
+    }
+    cp /= rho;
+
+    // When mechanism reduction is active
+    // dT is computed on the reduced set since dcdt is null
+    // for species not involved in the simplified mechanism
+    scalar dT = 0;
+    for (label i=0; i<this->nSpecie_; i++)
+    {
+        label si;
+        if (reduced)
+        {
+            si = simplifiedToCompleteIndex_[i];
+        }
+        else
+        {
+            si = i;
+        }
+
+        // ha function returns [J/kmol]
+        const scalar hi = this->specieThermo_[si].ha(p, T);
+        dT += hi*dcdt[i];
+    }
+    dT /= rho*cp;
+
+    dcdt[this->nSpecie_] = -dT;
+
+    // dp/dt = ...
+    dcdt[this->nSpecie_ + 1] = 0;
+}
+
+
+template<class ReactionThermo, class ThermoType>
+void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::jacobian
+(
+    const scalar t,
+    const scalarField& c,
+    scalarSquareMatrix& dfdc
+) const
+{
+    const bool reduced = mechRed_->active();
+
+    // If the mechanism reduction is active, the computed Jacobian
+    // is compact (size of the reduced set of species)
+    // but according to the information of the complete set
+    // (i.e. for the third-body efficiencies)
+
+    const label nSpecie = this->nSpecie_;
+
+    const scalar T = c[nSpecie];
+    const scalar p = c[nSpecie + 1];
+
+    if (reduced)
+    {
+        this->c_ = completeC_;
+        for (label i=0; i<NsDAC_; ++i)
+        {
+            this->c_[simplifiedToCompleteIndex_[i]] = max(c[i], 0.0);
+        }
+    }
+    else
+    {
+        forAll(this->c_, i)
+        {
+            this->c_[i] = max(c[i], 0.0);
+        }
+    }
+
+    dfdc = Zero;
+
+    forAll(this->reactions_, ri)
+    {
+        if (!reactionsDisabled_[ri])
+        {
+            const Reaction<ThermoType>& R = this->reactions_[ri];
+
+            const scalar kf0 = R.kf(p, T, this->c_);
+            const scalar kr0 = R.kr(kf0, p, T, this->c_);
+
+            forAll(R.lhs(), j)
+            {
+                label sj = R.lhs()[j].index;
+                if (reduced)
+                {
+                    sj = completeToSimplifiedIndex_[sj];
+                }
+                scalar kf = kf0;
+                forAll(R.lhs(), i)
+                {
+                    const label si = R.lhs()[i].index;
+                    const scalar el = R.lhs()[i].exponent;
+                    if (i == j)
+                    {
+                        if (el < 1)
+                        {
+                            if (this->c_[si] > SMALL)
+                            {
+                                kf *= el*pow(this->c_[si], el - 1);
+                            }
+                            else
+                            {
+                                kf = 0;
+                            }
+                        }
+                        else
+                        {
+                            kf *= el*pow(this->c_[si], el - 1);
+                        }
+                    }
+                    else
+                    {
+                        kf *= pow(this->c_[si], el);
+                    }
+                }
+
+                forAll(R.lhs(), i)
+                {
+                    label si = R.lhs()[i].index;
+                    if (reduced)
+                    {
+                        si = completeToSimplifiedIndex_[si];
+                    }
+                    const scalar sl = R.lhs()[i].stoichCoeff;
+                    dfdc(si, sj) -= sl*kf;
+                }
+                forAll(R.rhs(), i)
+                {
+                    label si = R.rhs()[i].index;
+                    if (reduced)
+                    {
+                        si = completeToSimplifiedIndex_[si];
+                    }
+                    const scalar sr = R.rhs()[i].stoichCoeff;
+                    dfdc(si, sj) += sr*kf;
+                }
+            }
+
+            forAll(R.rhs(), j)
+            {
+                label sj = R.rhs()[j].index;
+                if (reduced)
+                {
+                    sj = completeToSimplifiedIndex_[sj];
+                }
+                scalar kr = kr0;
+                forAll(R.rhs(), i)
+                {
+                    const label si = R.rhs()[i].index;
+                    const scalar er = R.rhs()[i].exponent;
+                    if (i == j)
+                    {
+                        if (er < 1)
+                        {
+                            if (this->c_[si] > SMALL)
+                            {
+                                kr *= er*pow(this->c_[si], er - 1);
+                            }
+                            else
+                            {
+                                kr = 0;
+                            }
+                        }
+                        else
+                        {
+                            kr *= er*pow(this->c_[si], er - 1);
+                        }
+                    }
+                    else
+                    {
+                        kr *= pow(this->c_[si], er);
+                    }
+                }
+
+                forAll(R.lhs(), i)
+                {
+                    label si = R.lhs()[i].index;
+                    if (reduced)
+                    {
+                        si = completeToSimplifiedIndex_[si];
+                    }
+                    const scalar sl = R.lhs()[i].stoichCoeff;
+                    dfdc(si, sj) += sl*kr;
+                }
+                forAll(R.rhs(), i)
+                {
+                    label si = R.rhs()[i].index;
+                    if (reduced)
+                    {
+                        si = completeToSimplifiedIndex_[si];
+                    }
+                    const scalar sr = R.rhs()[i].stoichCoeff;
+                    dfdc(si, sj) -= sr*kr;
+                }
+            }
+        }
+    }
+
+    // Calculate the dcdT elements numerically
+    const scalar delta = 1e-3;
+
+    omega(this->c_, T + delta, p, this->dcdt_);
+    for (label i=0; i<nSpecie; ++i)
+    {
+        dfdc(i, nSpecie) = this->dcdt_[i];
+    }
+
+    omega(this->c_, T - delta, p, this->dcdt_);
+    for (label i=0; i<nSpecie; ++i)
+    {
+        dfdc(i, nSpecie) = 0.5*(dfdc(i, nSpecie) - this->dcdt_[i])/delta;
+    }
+
+    dfdc(nSpecie, nSpecie) = 0;
+    dfdc(nSpecie + 1, nSpecie) = 0;
+}
+
+
+template<class ReactionThermo, class ThermoType>
+void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::jacobian
+(
+    const scalar t,
+    const scalarField& c,
+    scalarField& dcdt,
+    scalarSquareMatrix& dfdc
+) const
+{
+    jacobian(t, c, dfdc);
+
+    const scalar T = c[this->nSpecie_];
+    const scalar p = c[this->nSpecie_ + 1];
+
+    // Note: Uses the c_ field initialized by the call to jacobian above
+    omega(this->c_, T, p, dcdt);
+}
+
+
+template<class ReactionThermo, class ThermoType>
+void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::
+setTabulationResultsAdd
+(
+    const label celli
+)
+{
+    tabulationResults_[celli] = 0.0;
+}
+
+
+template<class ReactionThermo, class ThermoType>
+void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::
+setTabulationResultsGrow(const label celli)
+{
+    tabulationResults_[celli] = 1.0;
+}
+
+
+template<class ReactionThermo, class ThermoType>
+void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::
+setTabulationResultsRetrieve
+(
+    const label celli
+)
+{
+    tabulationResults_[celli] = 2.0;
+}
+
+
+// ************************************************************************* //
