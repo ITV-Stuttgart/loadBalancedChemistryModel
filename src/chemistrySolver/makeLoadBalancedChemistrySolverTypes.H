@@ -31,6 +31,7 @@ License
 #include "chemistrySolver.H"
 
 #include "LoadBalancedChemistryModel.H"
+#include "LoadBalancedTDACChemistryModel.H"
 
 #include "noChemistrySolver.H"
 #include "EulerImplicit.H"
@@ -55,6 +56,23 @@ License
         add##thermo##ConstructorToTable<SS##Comp##Thermo>                      \
         add##SS##Comp##Thermo##thermo##ConstructorTo##BasicChemistryModel##Comp\
 ##Table_;                                                                      \
+                                                                               \
+    typedef SS<LoadBalancedTDACChemistryModel<Comp, Thermo>>                   \
+        TDAC##SS##Comp##Thermo;                                                \
+                                                                               \
+    defineTemplateTypeNameAndDebugWithName                                     \
+    (                                                                          \
+        TDAC##SS##Comp##Thermo,                                                \
+        (#SS"<"                                                                \
+        + word(LoadBalancedTDACChemistryModel<Comp, Thermo>::typeName_()) + "<"\
+        + word(Comp::typeName_()) + "," + Thermo::typeName() + ">>").c_str(),  \
+        0                                                                      \
+    );                                                                         \
+                                                                               \
+    BasicChemistryModel<Comp>::                                                \
+        add##thermo##ConstructorToTable<TDAC##SS##Comp##Thermo>                \
+        add##TDAC##SS##Comp##Thermo##thermo##ConstructorTo##BasicChemistryModel\
+##Comp##Table_;
 
 
 #define makeLoadBalancedChemistrySolverTypes(Comp, Thermo)                     \

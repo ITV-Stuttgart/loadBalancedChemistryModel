@@ -1,6 +1,8 @@
-baseDataContainer/baseDataContainer.C
+dataContainer/baseDataContainer/baseDataContainer.C
+dataContainer/TDACDataContainer/TDACDataContainer.C
 
 chemistryModel/LoadBalancedChemistryModel/makeLoadBalancedChemistryModels.C
+chemistryModel/LoadBalancedTDACChemistryModel/makeLoadBalancedTDACChemistryModels.C
 
 chemistrySolver/makeLoadBalancedChemistrySolvers.C
 

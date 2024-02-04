@@ -83,13 +83,13 @@ class TDACDataContainer
     protected:
 
         //- Composition vector (Y, T, p)
-        List<scalar> phiq_;
+        Field<scalar> phiq_;
 
         //- Concentration
-        List<scalar> c_;
+        Field<scalar> c_;
 
         //- Concentration prior solving
-        List<scalar> c0_;
+        Field<scalar> c0_;
 
         //- Temperature
         scalar T_;
@@ -150,13 +150,13 @@ class TDACDataContainer
        // Modify
 
             //- Return species
-            List<scalar>& phiq() {return phiq_;}
+            Field<scalar>& phiq() {return phiq_;}
 
             //- Return concentration
-            List<scalar>& c() {return c_;}
+            Field<scalar>& c() {return c_;}
 
             //- Return old concentration
-            List<scalar>& c0() {return c0_;}
+            Field<scalar>& c0() {return c0_;}
 
             //- Access the temperature information
             scalar& T() {return T_;}
@@ -185,13 +185,13 @@ class TDACDataContainer
     // Const Access
 
             //- Return species
-            const List<scalar>& phiq() const {return phiq_;}
+            const Field<scalar>& phiq() const {return phiq_;}
 
             //- Return concentration
-            const List<scalar>& c() const {return c_;}
+            const Field<scalar>& c() const {return c_;}
 
             //- Return old concentration
-            const List<scalar>& c0() const {return c0_;}
+            const Field<scalar>& c0() const {return c0_;}
 
             //- Access the temperature information
             const scalar& T() const {return T_;}

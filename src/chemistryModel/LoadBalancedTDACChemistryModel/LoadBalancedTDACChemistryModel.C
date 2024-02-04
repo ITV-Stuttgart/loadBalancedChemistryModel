@@ -59,7 +59,7 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::addCell
     // Default is pressure and temperatur, if variableTimeStep is active
     // deltaT is added as well
     label nAdditions = 2;
-    if (this->variableTimeStep())
+    if (this->tabulation_->variableTimeStep())
         nAdditions = 3;
 
     TDACDataContainer cData(this->nSpecie_,nAdditions);
@@ -311,8 +311,8 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solveCell
     scalar timeTmp = clockTime_.timeIncrement();
 
     // Note: first nSpecie entries are the Yi values in phiq
-    List<scalar>& c = cellData.c();
-    List<scalar>& c0 = cellData.c0();
+    Field<scalar>& c = cellData.c();
+    Field<scalar>& c0 = cellData.c0();
     for (label i=0; i<this->nSpecie_; i++)
     {
         c[i] = cellData.rho()*cellData.phiq()[i]/this->specieThermo_[i].W();
@@ -348,17 +348,17 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solveCell
         {
             // completeC_ used in the overridden ODE methods
             // to update only the active species
-            completeC() = c;
+            this->completeC_ = c;
 
             // Solve the reduced set of ODE
             this->solve
             (
-                simplifiedC(), cellData.T(), cellData.T(), dt, cellData.deltaTChem()
+                this->simplifiedC_, cellData.T(), cellData.T(), dt, cellData.deltaTChem()
             );
 
-            for (label i=0; i<NsDAC_; ++i)
+            for (label i=0; i<this->NsDAC_; ++i)
             {
-                c[simplifiedToCompleteIndex_[i]] = simplifiedC()[i];
+                c[this->simplifiedToCompleteIndex_[i]] = this->simplifiedC_[i];
             }
         }
         else
@@ -428,13 +428,16 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
             << exit(FatalError);
 
 
+    // Clear cell data list
+    cellDataList_.clear();
+
 
     // Increment counter of time-step
-    timeSteps_++;
+    this->timeSteps_++;
 
     const bool reduced = this->mechRed()->active();
 
-    label nAdditionalEqn = (this->variableTimeStep() ? 1 : 0);
+    label nAdditionalEqn = (this->tabulation_->variableTimeStep() ? 1 : 0);
 
     basicSpecieMixture& composition = this->thermo().composition();
 
@@ -494,7 +497,7 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
         }
         phiq[this->nSpecie()] = Ti;
         phiq[this->nSpecie() + 1] = pi;
-        if (this->variableTimeStep())
+        if (this->tabulation_->variableTimeStep())
         {
             phiq[this->nSpecie() + 2] = deltaT[celli];
         }
@@ -530,9 +533,10 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
         // with the load balanced method
         else
         {
-            addCell(phiq,Ti,pi,rhoi,deltaT[celli]);
+            addCell(phiq,Ti,pi,rhoi,deltaT[celli],celli);
         }
     }
+
 
     // ========================================================================
     // Solve for cells that were not found in the table
@@ -544,6 +548,7 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
     {
         solveCellList(cellDataList_);
         updateTotalCpuTime(cellDataList_); 
+
         firstTime_ = false;
     }
     else
@@ -666,6 +671,7 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
 
         updateTotalCpuTime(cellDataList_); 
     }
+
     // ========================================================================
     //                      Update Table
     // ========================================================================
@@ -674,33 +680,35 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
     {
         const label celli = cData.cellID();
 
-        const List<scalar>& c = cData.c();
-        const List<scalar>& c0 = cData.c0();
+        const auto& c = cData.c();
+        const auto& c0 = cData.c0();
+
+        // Not sure if this is necessary
+        Rphiq = Zero;
+
+        forAll(c, i)
+        {
+            Rphiq[i] = c[i]/cData.rho()*this->specieThermo_[i].W();
+        }
+        if (this->tabulation_->variableTimeStep())
+        {
+            Rphiq[Rphiq.size()-3] = cData.T();
+            Rphiq[Rphiq.size()-2] = cData.p();
+            Rphiq[Rphiq.size()-1] = cData.deltaT();
+        }
+        else
+        {
+            Rphiq[Rphiq.size()-2] = cData.T();
+            Rphiq[Rphiq.size()-1] = cData.p();
+        }
+
 
         // If tabulation is used, we add the information computed here to
         // the stored points (either expand or add)
-        if (this->tabulation_->active())
+        if (this->tabulation_->active() && !this->tabulation_->retrieve(phiq, Rphiq))
         {
-            // Not sure if this is necessary
-            Rphiq = Zero;
-
-            forAll(c, i)
-            {
-                Rphiq[i] = c[i]/cData.rho()*this->specieThermo_[i].W();
-            }
-            if (this->variableTimeStep())
-            {
-                Rphiq[Rphiq.size()-3] = cData.T();
-                Rphiq[Rphiq.size()-2] = cData.p();
-                Rphiq[Rphiq.size()-1] = cData.deltaT();
-            }
-            else
-            {
-                Rphiq[Rphiq.size()-2] = cData.T();
-                Rphiq[Rphiq.size()-1] = cData.p();
-            }
             label growOrAdd =
-                this->tabulation_->add(phiq, Rphiq, cData.rho(), cData.deltaT());
+                this->tabulation_->add(cData.phiq(), Rphiq, cData.rho(), cData.deltaT());
 
             if (growOrAdd)
             {
@@ -728,16 +736,16 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
     }
   
 
-    if (mechRed_->log() || this->tabulation_->log())
+    if (this->mechRed_->log() || this->tabulation_->log())
     {
-        cpuSolveFile_()
+        this->cpuSolveFile_()
             << this->time().timeOutputValue()
             << "    " << solveChemistryCpuTime_ << endl;
     }
 
-    if (mechRed_->log())
+    if (this->mechRed_->log())
     {
-        cpuReduceFile_()
+        this->cpuReduceFile_()
             << this->time().timeOutputValue()
             << "    " << reduceMechCpuTime_ << endl;
     }
@@ -752,24 +760,24 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
 
         if (this->tabulation_->log())
         {
-            cpuRetrieveFile_()
+            this->cpuRetrieveFile_()
                 << this->time().timeOutputValue()
                 << "    " << searchISATCpuTime_ << endl;
 
-            cpuGrowFile_()
+            this->cpuGrowFile_()
                 << this->time().timeOutputValue()
                 << "    " << growCpuTime_ << endl;
 
-            cpuAddFile_()
+            this->cpuAddFile_()
                 << this->time().timeOutputValue()
                 << "    " << addNewLeafCpuTime_ << endl;
         }
     }
 
-    if (reduced && nAvg && mechRed_->log())
+    if (reduced && nAvg && this->mechRed_->log())
     {
         // Write average number of species
-        nActiveSpeciesFile_()
+        this->nActiveSpeciesFile_()
             << this->time().timeOutputValue()
             << "    " << nActiveSpecies/nAvg << endl;
     }

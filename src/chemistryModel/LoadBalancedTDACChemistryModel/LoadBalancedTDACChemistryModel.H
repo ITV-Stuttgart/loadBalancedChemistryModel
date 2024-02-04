@@ -27,7 +27,7 @@ Class
     Foam::LoadBalancedTDACChemistryModel
 
 Description
-    Extends the StandardChemistryModel with load balancing of the reation.
+    Extends the TDACChemistryModel with load balancing of the reation.
 
 SourceFiles
     LoadBalancedTDACChemistryModel.H
@@ -57,7 +57,7 @@ namespace Foam
 template<class ReactionThermo, class ThermoType>
 class LoadBalancedTDACChemistryModel
 :
-    public StandardChemistryModel<ReactionThermo, ThermoType>
+    public TDACChemistryModel<ReactionThermo, ThermoType>
 {
 private:
 
@@ -184,7 +184,7 @@ public:
             return cellDataList_;
         }
 
-    // ODE functions (overriding functions in StandardChemistryModel to take
+    // ODE functions (overriding functions in TDACChemistryModel to take
 
         virtual void solve
         (
