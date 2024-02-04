@@ -61,50 +61,7 @@ class LoadBalancedTDACChemistryModel
 {
 private:
 
-    // Private Member Data Required for TDAC
-
-        bool variableTimeStep_;
-
-        label timeSteps_;
-
-        // Mechanism reduction
-        label NsDAC_;
-        scalarField completeC_;
-        scalarField simplifiedC_;
-        Field<bool> reactionsDisabled_;
-        List<List<specieElement>> specieComp_;
-        Field<label> completeToSimplifiedIndex_;
-        DynamicList<label> simplifiedToCompleteIndex_;
-        autoPtr<chemistryReductionMethod<ReactionThermo, ThermoType>>
-            mechRed_;
-
-        // Tabulation
-        autoPtr<chemistryTabulationMethod<ReactionThermo, ThermoType>>
-            tabulation_;
-
-        // Log file for the average time spent reducing the chemistry
-        autoPtr<OFstream> cpuReduceFile_;
-
-        // Write average number of species
-        autoPtr<OFstream> nActiveSpeciesFile_;
-
-        //- Log file for the average time spent adding tabulated data
-        autoPtr<OFstream> cpuAddFile_;
-
-        //- Log file for the average time spent growing tabulated data
-        autoPtr<OFstream> cpuGrowFile_;
-
-        //- Log file for the average time spent retrieving tabulated data
-        autoPtr<OFstream> cpuRetrieveFile_;
-
-        //- Log file for average time spent solving the chemistry
-        autoPtr<OFstream> cpuSolveFile_;
-
-        // Field containing information about tabulation:
-        // 0 -> add (direct integration)
-        // 1 -> grow
-        // 2 -> retrieve
-        volScalarField tabulationResults_;
+    // Private Memeber Variables for TDAC
 
         //- Store for cpuStatistics
         clockTime clockTime_;
@@ -113,7 +70,6 @@ private:
         scalar growCpuTime_;
         scalar solveChemistryCpuTime_;
         scalar searchISATCpuTime_;
-
 
     // Private Member Variables for Load Balancing
 
@@ -228,133 +184,21 @@ public:
             return cellDataList_;
         }
 
-
-    // Member Functions From TDAC
-
-        //- Return true if the time-step is variable and/or non-uniform
-        inline bool variableTimeStep() const;
-
-        //- Return the number of chemistry evaluations (used by ISAT)
-        inline label timeSteps() const;
-
-        //- Create and return a TDAC log file of the given name
-        inline autoPtr<OFstream> logFile(const word& name) const;
-
-        inline PtrList<volScalarField>& Y();
-
-        //- dc/dt = omega, rate of change in concentration, for each species
-        virtual void omega
-        (
-            const scalarField& c,
-            const scalar T,
-            const scalar p,
-            scalarField& dcdt
-        ) const;
-
-        //- Return the reaction rate for reaction r and the reference
-        //  species and characteristic times
-        virtual scalar omega
-        (
-            const Reaction<ThermoType>& r,
-            const scalarField& c,
-            const scalar T,
-            const scalar p,
-            scalar& pf,
-            scalar& cf,
-            label& lRef,
-            scalar& pr,
-            scalar& cr,
-            label& rRef
-        ) const;
-
-
-
-
-
-
-
     // ODE functions (overriding functions in StandardChemistryModel to take
-        // into account the variable number of species)
 
-            virtual void derivatives
-            (
-                const scalar t,
-                const scalarField& c,
-                scalarField& dcdt
-            ) const;
-
-            //- Pure jacobian function for tabulation
-            void jacobian
-            (
-                const scalar t,
-                const scalarField& c,
-                scalarSquareMatrix& dfdc
-            ) const;
-
-            virtual void jacobian
-            (
-                const scalar t,
-                const scalarField& c,
-                scalarField& dcdt,
-                scalarSquareMatrix& dfdc
-            ) const;
-
-            virtual void solve
-            (
-                scalarField& c,
-                scalar& T,
-                scalar& p,
-                scalar& deltaT,
-                scalar& subDeltaT
-            ) const = 0;
-
-        // Mechanism reduction access functions
-
-            inline void setNsDAC(const label newNsDAC);
-
-            inline void setNSpecie(const label newNs);
-
-            inline scalarField& completeC();
-
-            inline scalarField& simplifiedC();
-
-            inline Field<bool>& reactionsDisabled();
-
-            inline bool active(const label i) const;
-
-            inline void setActive(const label i);
-
-            inline DynamicList<label>& simplifiedToCompleteIndex();
-
-            inline Field<label>& completeToSimplifiedIndex();
-
-            inline const Field<label>& completeToSimplifiedIndex() const;
-
-            inline List<List<specieElement>>& specieComp();
-
-            inline
-                autoPtr<chemistryReductionMethod<ReactionThermo, ThermoType>>&
-                mechRed();
-
-            tmp<volScalarField> tabulationResults() const
-            {
-                return tabulationResults_;
-            }
-
-            void setTabulationResultsAdd(const label celli);
-
-            void setTabulationResultsGrow(const label celli);
-
-            void setTabulationResultsRetrieve(const label celli);
-
-            inline void resetTabulationResults();
+        virtual void solve
+        (
+            scalarField& c,
+            scalar& T,
+            scalar& p,
+            scalar& deltaT,
+            scalar& subDeltaT
+        ) const = 0;
 };
 
 }   // End of namespace Foam
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
-
-#include "LoadBalancedTDACChemistryModelI.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
   
