@@ -73,8 +73,9 @@ private:
 
     // Private Member Variables for Load Balancing
 
-        //- List to store the cell information in the TDACDataContainer
-        DynamicList<TDACDataContainer> cellDataList_;
+        //- List of TDACDataContainer for each cell of the field
+        //  Always has the size of the field
+        DynamicList<TDACDataContainer> cellDataField_;
 
         //- Switch to check if it is called the first time in the simulation
         bool firstTime_{true};
@@ -82,11 +83,16 @@ private:
         //- Total cpu time on all processors
         scalar totalCpuTime_;
 
+        //- Number of cells that were not found in the table and need to be
+        //  solved
+        label cellsToSolve_;
+
     // Private Member Functions
 
         //- Add cell to cellDataList for parallel processing
         void addCell
         (
+            DynamicList<TDACDataContainer*>& cellList,
             const scalarField& phiq,
             const scalar& T,
             const scalar& p,
@@ -100,7 +106,7 @@ private:
         //  Returns a list of sublists of cells to send to processor i
         void cellsToSend
         (
-            const DynamicList<TDACDataContainer>& cellList,
+            const DynamicList<TDACDataContainer*>& cellList,
             const scalar cpuTimeToSend,
             const label& start,
             label& end
@@ -126,13 +132,13 @@ private:
         //- Update the totalCpuTime_ variable 
         void updateTotalCpuTime
         (
-            const DynamicList<TDACDataContainer>& reactParList
+            const DynamicList<TDACDataContainer*>& cellList
         );
 
         //- solve the reaction for all cells in the given list
         void solveCellList
         (
-            UList<TDACDataContainer>& cellList
+            UList<TDACDataContainer*>& cellList
         );
 
         //- Solve chemistry for once cell
@@ -170,19 +176,6 @@ public:
         //- Solve the reaction system for the given time step with load
         //  balancing and return the characteristic time
         virtual scalar solve(const scalarField& deltaT);
-
-
-        //- Access the stored cell data
-        DynamicList<TDACDataContainer>& cellDataList()
-        {
-            return cellDataList_;
-        }
-
-        //- Const access the stored cell data
-        const DynamicList<TDACDataContainer>& cellDataList() const
-        {
-            return cellDataList_;
-        }
 
     // ODE functions (overriding functions in TDACChemistryModel to take
 

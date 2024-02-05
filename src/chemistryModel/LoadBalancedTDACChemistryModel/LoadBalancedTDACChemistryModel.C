@@ -39,12 +39,32 @@ Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::LoadBalancedTD
 )
 :
     TDACChemistryModel<ReactionThermo, ThermoType>(thermo)
-{}
+{
+    // Initialize cell list
+    tmp<volScalarField> trho(this->thermo().rho());
+    const scalarField& rho = trho();
+
+    cellDataField_.reserve(rho.size());
+
+    // Number of additional properties stored in phiq.
+    // Default is pressure and temperatur, if variableTimeStep is active
+    // deltaT is added as well
+    label nAdditions = 2;
+    if (this->tabulation_->variableTimeStep())
+        nAdditions = 3;
+
+    forAll(rho,celli)
+    {
+        TDACDataContainer cData(this->nSpecie_,nAdditions);
+        cellDataField_.append(cData);
+    }
+}
 
 
 template<class ReactionThermo, class ThermoType>
 void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::addCell
 (
+    DynamicList<TDACDataContainer*>& cellList,
     const scalarField& phiq,
     const scalar& T,
     const scalar& p,
@@ -55,14 +75,8 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::addCell
 {
     label MyProcNo = Pstream::myProcNo();
 
-    // Number of additional properties stored in phiq.
-    // Default is pressure and temperatur, if variableTimeStep is active
-    // deltaT is added as well
-    label nAdditions = 2;
-    if (this->tabulation_->variableTimeStep())
-        nAdditions = 3;
-
-    TDACDataContainer cData(this->nSpecie_,nAdditions);
+    // Checkout the cellData container from the field
+    TDACDataContainer& cData = cellDataField_[celli];
 
     cData.phiq() = phiq;
 
@@ -80,14 +94,16 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::addCell
 
     cData.cellID() = celli;
 
-    cellDataList_.append(cData);
+    cellList.append(&cData);
+
+    cellsToSolve_++;
 }
 
 
 template<class ReactionThermo, class ThermoType>
 void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::cellsToSend
 (
-    const DynamicList<TDACDataContainer>& cellList,
+    const DynamicList<TDACDataContainer*>& cellList,
     const scalar cpuTimeToSend,
     const label& start,
     label& end
@@ -106,7 +122,7 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::cellsToSe
             break;
         }
 
-        cpuTime += cellList[i].cpuTime();
+        cpuTime += cellList[i]->cpuTime();
     }
 }
 
@@ -144,7 +160,7 @@ Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::getProcessorBa
     forAll(sortedCpuTimeOnProcessors,i)
     {
         const label procI = sortedCpuTimeOnProcessors[i].second.first();
-        const label nCellsOnProcI = sortedCpuTimeOnProcessors[i].second.second();
+        const label nCellsToComputeOnProcI = sortedCpuTimeOnProcessors[i].second.second();
 
         // List of processors to send information to
         DynamicList<Tuple2<scalar,label>>& sendLoadList = 
@@ -178,7 +194,7 @@ Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::getProcessorBa
             const scalar newCapacity = capacityOfProcK - cpuTimeOverhead;
             
             // Check that the number of particles to send is greater than 1
-            if ((cpuTimeOverhead/cpuTimeProcI*nCellsOnProcI) < 2)
+            if ((cpuTimeOverhead/cpuTimeProcI*nCellsToComputeOnProcI) < 2)
                 continue;
             
 
@@ -252,7 +268,7 @@ Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::getSortedCPUTi
     // Gather the data from all processors
     List<Tuple2<scalar,label>> cpuTimeOnProcessors(numProcs);
     cpuTimeOnProcessors[Pstream::myProcNo()].first() = totalCpuTime_;
-    cpuTimeOnProcessors[Pstream::myProcNo()].second() = cellDataList_.size();
+    cpuTimeOnProcessors[Pstream::myProcNo()].second() = cellsToSolve_;
 
 
     Pstream::gatherList(cpuTimeOnProcessors);
@@ -289,14 +305,14 @@ Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::getSortedCPUTi
 template<class ReactionThermo, class ThermoType>
 void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::updateTotalCpuTime
 (
-    const DynamicList<TDACDataContainer>& reactCellList
+    const DynamicList<TDACDataContainer*>& cellList
 )
 {
     // Calculate the total time spent solving the particles on this processor
-    totalCpuTime_  = 0;
+    totalCpuTime_  = searchISATCpuTime_;
     
-    for (const auto& obj : reactCellList)
-        totalCpuTime_ += obj.cpuTime();
+    for (const auto& cDataPtr : cellList)
+        totalCpuTime_ += cDataPtr->cpuTime();
 }
 
 
@@ -306,7 +322,6 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solveCell
     TDACDataContainer& cellData
 )
 {
-
     // Store total time waiting to attribute to add or grow
     scalar timeTmp = clockTime_.timeIncrement();
 
@@ -386,10 +401,10 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solveCell
 template<class ReactionThermo, class ThermoType>
 void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solveCellList
 (
-    UList<TDACDataContainer>& cellList
+    UList<TDACDataContainer*>& cellList
 )
 {    
-    for(TDACDataContainer& cellData : cellList)
+    for (TDACDataContainer* cDataPtr : cellList)
     {
         // We cannot use here cpuTimeIncrement() of OpenFOAM as this 
         // returns only measurements in 100Hz or 1000Hz intervals depending
@@ -398,7 +413,7 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solveCell
 
         solveCell
         (
-            cellData
+            *cDataPtr
         );
         
         auto end = std::chrono::high_resolution_clock::now();
@@ -407,7 +422,7 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solveCell
 
         // Add the time required to solve this particle to the list 
         // as seconds
-        cellData.cpuTime() = duration.count()*1.0E-6;
+        cDataPtr->cpuTime() = duration.count()*1.0E-6;
     }
 }
 
@@ -420,17 +435,17 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
 )
 {
     // if it is not a prallel run exit with an error
-    if (!Pstream::parRun())
-        FatalError 
-            << "Dynamic load balancing can only be activated for parallel "
-            << "simulations." << nl
-            << "Please run the simulation in parallel"
-            << exit(FatalError);
+    // if (!Pstream::parRun())
+    //     FatalError 
+    //         << "Dynamic load balancing can only be activated for parallel "
+    //         << "simulations." << nl
+    //         << "Please run the simulation in parallel"
+    //         << exit(FatalError);
 
+    // List of cells that need to be solved
+    DynamicList<TDACDataContainer*> cellList;
 
-    // Clear cell data list
-    cellDataList_.clear();
-
+    cellsToSolve_ = 0;
 
     // Increment counter of time-step
     this->timeSteps_++;
@@ -467,9 +482,6 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
 
     tmp<volScalarField> trho(this->thermo().rho());
     const scalarField& rho = trho();
-
-    // Reserve at least enough space for all cells on the local mesh
-    cellDataList_.reserve(rho.size());
 
     const scalarField& T = this->thermo().T();
     const scalarField& p = this->thermo().p();
@@ -533,7 +545,7 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
         // with the load balanced method
         else
         {
-            addCell(phiq,Ti,pi,rhoi,deltaT[celli],celli);
+            addCell(cellList,phiq,Ti,pi,rhoi,deltaT[celli],celli);
         }
     }
 
@@ -546,8 +558,8 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
     // gathered first
     if (firstTime_)
     {
-        solveCellList(cellDataList_);
-        updateTotalCpuTime(cellDataList_); 
+        solveCellList(cellList);
+        updateTotalCpuTime(cellList); 
 
         firstTime_ = false;
     }
@@ -570,11 +582,11 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
             const scalar percToSend = sendDataInfoI.first();
             const label toProc = sendDataInfoI.second();
             
-            label end = cellDataList_.size();
+            label end = cellList.size();
 
             cellsToSend
             (
-                cellDataList_,
+                cellList,
                 totalCpuTime_*percToSend,
                 start,
                 end
@@ -586,23 +598,24 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
             toBuffer << dataSize;
             for (label i=start; i < end; i++)
             {
-                toBuffer << cellDataList_[i];
+                toBuffer << *(cellList[i]);
             }
             
             start = end;
         }
         
         // Set local to compute particle list
-        SubList<TDACDataContainer> localToComputeParticles
+        SubList<TDACDataContainer*> localToComputeParticles
         (
-            cellDataList_,
-            cellDataList_.size()-start,
+            cellList,
+            cellList.size()-start,
             start
         );
 
         pBufs.finishedSends();
 
         DynamicList<TDACDataContainer> processorCells;
+        
         
         List<label> receivedDataSizes(recvProc.size());
         
@@ -623,11 +636,21 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
             }
         }    
 
+        // We need to create a pointer list for the solveCellList function
+        List<TDACDataContainer*> processorCellsPtr(processorCells.size(), nullptr);
+
+        // We cannot create this pointer list in the for loop before, as each
+        // resize of the dynamic list will invalidate the pointers. 
+        forAll(processorCells,i)
+        {
+            processorCellsPtr[i] = &processorCells[i];
+        }
+
         // Start solving local to compute particles
         solveCellList(localToComputeParticles);
 
         // Solve the chemistry on processor particles
-        solveCellList(processorCells);
+        solveCellList(processorCellsPtr);
 
         // Send the information back 
         // Note: Now the processors to which we originally had send informations
@@ -664,20 +687,23 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
             label end = start + dataSize;
             
             for (label i=start; i < end; i++)
-                fromBuffer >> cellDataList_[i];
+                fromBuffer >> *(cellList[i]);
             
             start = end;
         }
 
-        updateTotalCpuTime(cellDataList_); 
+        updateTotalCpuTime(cellList); 
     }
 
     // ========================================================================
     //                      Update Table
     // ========================================================================
 
-    for (const auto& cData : cellDataList_)
+    for (const auto& cDataPtr : cellList)
     {
+        // dereference pointer
+        const auto& cData = *cDataPtr;
+
         const label celli = cData.cellID();
 
         const auto& c = cData.c();
@@ -705,7 +731,11 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
 
         // If tabulation is used, we add the information computed here to
         // the stored points (either expand or add)
-        if (this->tabulation_->active() && !this->tabulation_->retrieve(phiq, Rphiq))
+        if 
+        (
+            this->tabulation_->active() 
+         && !this->tabulation_->retrieve(phiq, Rphiq)
+        )
         {
             label growOrAdd =
                 this->tabulation_->add(cData.phiq(), Rphiq, cData.rho(), cData.deltaT());
