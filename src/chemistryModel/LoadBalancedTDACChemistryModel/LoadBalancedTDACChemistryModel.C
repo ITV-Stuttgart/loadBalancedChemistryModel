@@ -728,13 +728,14 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
             Rphiq[Rphiq.size()-1] = cData.p();
         }
 
+        clockTime_.timeIncrement();
 
         // If tabulation is used, we add the information computed here to
         // the stored points (either expand or add)
         if 
         (
             this->tabulation_->active() 
-         && !this->tabulation_->retrieve(phiq, Rphiq)
+         && !this->tabulation_->retrieve(cData.phiq(), Rphiq)
         )
         {
             label growOrAdd =
@@ -743,12 +744,12 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
             if (growOrAdd)
             {
                 this->setTabulationResultsAdd(celli);
-                addNewLeafCpuTime_ += clockTime_.timeIncrement() + cData.cpuTime();
+                addNewLeafCpuTime_ += clockTime_.timeIncrement();
             }
             else
             {
                 this->setTabulationResultsGrow(celli);
-                growCpuTime_ += clockTime_.timeIncrement() + cData.cpuTime();
+                growCpuTime_ += clockTime_.timeIncrement();
             }
         }
 
