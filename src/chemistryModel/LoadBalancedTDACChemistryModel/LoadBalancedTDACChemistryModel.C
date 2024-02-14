@@ -75,7 +75,7 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::addCell
 {
     label MyProcNo = Pstream::myProcNo();
 
-    // Checkout the cellData container from the field
+    // Checkout the cData container from the field
     TDACDataContainer& cData = cellDataField_[celli];
 
     cData.phiq() = phiq;
@@ -319,24 +319,24 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::updateTot
 template<class ReactionThermo, class ThermoType>
 void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solveCell
 (
-    TDACDataContainer& cellData
+    TDACDataContainer& cData
 )
 {
     // Store total time waiting to attribute to add or grow
     scalar timeTmp = clockTime_.timeIncrement();
 
     // Note: first nSpecie entries are the Yi values in phiq
-    Field<scalar>& c = cellData.c();
-    Field<scalar>& c0 = cellData.c0();
+    Field<scalar>& c = cData.c();
+    Field<scalar>& c0 = cData.c0();
     for (label i=0; i<this->nSpecie_; i++)
     {
-        c[i] = cellData.rho()*cellData.phiq()[i]/this->specieThermo_[i].W();
+        c[i] = cData.rho()*cData.phiq()[i]/this->specieThermo_[i].W();
         c0[i] = c[i];
     }
 
     const bool reduced = this->mechRed()->active();
 
-    scalar timeLeft = cellData.deltaT();
+    scalar timeLeft = cData.deltaT();
 
     scalar reduceMechCpuTime_ = 0;
 
@@ -347,7 +347,7 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solveCell
     if (reduced)
     {
         // Reduce mechanism change the number of species (only active)
-        this->mechRed()->reduceMechanism(c, cellData.T(), cellData.p());
+        this->mechRed()->reduceMechanism(c, cData.T(), cData.p());
         nActiveSpecies += this->mechRed()->NsSimp();
         ++nAvg;
         scalar timeIncr = clockTime_.timeIncrement();
@@ -368,7 +368,7 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solveCell
             // Solve the reduced set of ODE
             this->solve
             (
-                this->simplifiedC_, cellData.T(), cellData.T(), dt, cellData.deltaTChem()
+                this->simplifiedC_, cData.T(), cData.T(), dt, cData.deltaTChem()
             );
 
             for (label i=0; i<this->NsDAC_; ++i)
@@ -378,7 +378,7 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solveCell
         }
         else
         {
-            this->solve(c, cellData.T(), cellData.p(), dt, cellData.deltaTChem());
+            this->solve(c, cData.T(), cData.p(), dt, cData.deltaTChem());
         }
         timeLeft -= dt;
     }
@@ -401,11 +401,17 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solveCell
 template<class ReactionThermo, class ThermoType>
 void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solveCellList
 (
-    UList<TDACDataContainer*>& cellList
+    UList<TDACDataContainer*>& cellList,
+    const bool logCPUTimeForAddToTable
 )
 {    
     for (TDACDataContainer* cDataPtr : cellList)
     {
+        // Check if it now can be found in table
+        // this is possible if a previous cell computed this result
+        if (lookUpCellInTable(*cDataPtr))
+            continue;
+
         // We cannot use here cpuTimeIncrement() of OpenFOAM as this 
         // returns only measurements in 100Hz or 1000Hz intervals depending
         // on the installed kernel 
@@ -415,7 +421,7 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solveCell
         (
             *cDataPtr
         );
-        
+
         auto end = std::chrono::high_resolution_clock::now();
         
         auto duration = (std::chrono::duration_cast<std::chrono::microseconds>(end-start));
@@ -423,6 +429,104 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solveCell
         // Add the time required to solve this particle to the list 
         // as seconds
         cDataPtr->cpuTime() = duration.count()*1.0E-6;
+
+        // Add to table
+        addCellToTable(*cDataPtr,logCPUTimeForAddToTable);
+    }
+}
+
+
+template<class ReactionThermo, class ThermoType>
+bool Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::lookUpCellInTable
+(
+    TDACDataContainer& cData
+)
+{
+    if 
+    (
+        this->tabulation_->active() 
+     && this->tabulation_->retrieve(cData.phiq(), Rphiq_)
+    )
+    {
+        // Note: first nSpecie entries are the Yi values in phiq
+        Field<scalar>& c = cData.c();
+        Field<scalar>& c0 = cData.c0();
+        for (label i=0; i<this->nSpecie_; i++)
+        {
+            c0[i] = cData.rho()*cData.phiq()[i]/this->specieThermo_[i].W();
+        }
+
+        // Retrieved solution stored in Rphiq_
+        for (label i=0; i<this->nSpecie(); ++i)
+        {
+            c[i] = cData.rho()*Rphiq_[i]/this->specieThermo_[i].W();
+        }
+        return true;
+    }
+
+    return false;
+}
+
+
+template<class ReactionThermo, class ThermoType>
+void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::addCellToTable
+(
+    const TDACDataContainer& cData,
+    const bool logCPUTimeForAddToTable
+)
+{
+    const auto& c = cData.c();
+
+    // Not sure if this is necessary
+    Rphiq_ = Zero;
+
+    forAll(c, i)
+    {
+        Rphiq_[i] = c[i]/cData.rho()*this->specieThermo_[i].W();
+    }
+    if (this->tabulation_->variableTimeStep())
+    {
+        Rphiq_[Rphiq_.size()-3] = cData.T();
+        Rphiq_[Rphiq_.size()-2] = cData.p();
+        Rphiq_[Rphiq_.size()-1] = cData.deltaT();
+    }
+    else
+    {
+        Rphiq_[Rphiq_.size()-2] = cData.T();
+        Rphiq_[Rphiq_.size()-1] = cData.p();
+    }
+
+    clockTime_.timeIncrement();
+
+    // If tabulation is used, we add the information computed here to
+    // the stored points (either expand or add)
+    if 
+    (
+        this->tabulation_->active() 
+        && !this->tabulation_->retrieve(cData.phiq(), Rphiq_)
+    )
+    {
+        label growOrAdd =
+            this->tabulation_->add
+            (
+                cData.phiq(), Rphiq_, cData.rho(), cData.deltaT()
+            );
+
+        if (logCPUTimeForAddToTable)
+        {
+            const label celli = cData.cellID();
+
+            if (growOrAdd)
+            {
+                this->setTabulationResultsAdd(celli);
+                addNewLeafCpuTime_ += clockTime_.timeIncrement();
+            }
+            else
+            {
+                this->setTabulationResultsGrow(celli);
+                growCpuTime_ += clockTime_.timeIncrement();
+            }
+        }
     }
 }
 
@@ -443,7 +547,7 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
     //         << exit(FatalError);
 
     // List of cells that need to be solved
-    DynamicList<TDACDataContainer*> cellList;
+    DynamicList<TDACDataContainer*> cellList(cellDataField_.size());
 
     cellsToSolve_ = 0;
 
@@ -492,7 +596,7 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
     // Composition vector (Yi, T, p)
     scalarField phiq(this->nEqns() + nAdditionalEqn);
 
-    scalarField Rphiq(this->nEqns() + nAdditionalEqn);
+    Rphiq_.resize(this->nEqns() + nAdditionalEqn);
 
     forAll(rho, celli)
     {
@@ -515,19 +619,19 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
         }
 
         // Not sure if this is necessary
-        Rphiq = Zero;
+        Rphiq_ = Zero;
 
         clockTime_.timeIncrement();
 
         // When tabulation is active (short-circuit evaluation for retrieve)
         // It first tries to retrieve the solution of the system with the
         // information stored through the tabulation method
-        if (this->tabulation_->active() && this->tabulation_->retrieve(phiq, Rphiq))
+        if (this->tabulation_->active() && this->tabulation_->retrieve(phiq, Rphiq_))
         {
-            // Retrieved solution stored in Rphiq
+            // Retrieved solution stored in Rphiq_
             for (label i=0; i<this->nSpecie(); ++i)
             {
-                c[i] = rhoi*Rphiq[i]/this->specieThermo_[i].W();
+                c[i] = rhoi*Rphiq_[i]/this->specieThermo_[i].W();
             }
 
             searchISATCpuTime_ += clockTime_.timeIncrement();
@@ -558,7 +662,7 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
     // gathered first
     if (firstTime_)
     {
-        solveCellList(cellList);
+        solveCellList(cellList,true);
         updateTotalCpuTime(cellList); 
 
         firstTime_ = false;
@@ -709,49 +813,8 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
         const auto& c = cData.c();
         const auto& c0 = cData.c0();
 
-        // Not sure if this is necessary
-        Rphiq = Zero;
-
-        forAll(c, i)
-        {
-            Rphiq[i] = c[i]/cData.rho()*this->specieThermo_[i].W();
-        }
-        if (this->tabulation_->variableTimeStep())
-        {
-            Rphiq[Rphiq.size()-3] = cData.T();
-            Rphiq[Rphiq.size()-2] = cData.p();
-            Rphiq[Rphiq.size()-1] = cData.deltaT();
-        }
-        else
-        {
-            Rphiq[Rphiq.size()-2] = cData.T();
-            Rphiq[Rphiq.size()-1] = cData.p();
-        }
-
-        clockTime_.timeIncrement();
-
-        // If tabulation is used, we add the information computed here to
-        // the stored points (either expand or add)
-        if 
-        (
-            this->tabulation_->active() 
-         && !this->tabulation_->retrieve(cData.phiq(), Rphiq)
-        )
-        {
-            label growOrAdd =
-                this->tabulation_->add(cData.phiq(), Rphiq, cData.rho(), cData.deltaT());
-
-            if (growOrAdd)
-            {
-                this->setTabulationResultsAdd(celli);
-                addNewLeafCpuTime_ += clockTime_.timeIncrement();
-            }
-            else
-            {
-                this->setTabulationResultsGrow(celli);
-                growCpuTime_ += clockTime_.timeIncrement();
-            }
-        }
+        // Add cell to ISAT table and log CPU time
+        addCellToTable(cData,true);
 
         deltaTMin = min(this->deltaTChem_[celli], deltaTMin);
 

@@ -71,6 +71,10 @@ private:
         scalar solveChemistryCpuTime_;
         scalar searchISATCpuTime_;
 
+        //- Variable to store the solution vector. 
+        //  Allocated here to avoid reallocation
+        scalarField Rphiq_;
+
     // Private Member Variables for Load Balancing
 
         //- List of TDACDataContainer for each cell of the field
@@ -135,10 +139,22 @@ private:
             const DynamicList<TDACDataContainer*>& cellList
         );
 
-        //- solve the reaction for all cells in the given list
+        //- Add cell to ISAT table -- after solving
+        //  Switch to activate the record time for logging
+        void addCellToTable
+        (
+            const TDACDataContainer& cData,
+            const bool logCPUTimeForAddToTable
+        );
+
+        //- Lookup the cell data in the ISAT table
+        bool lookUpCellInTable(TDACDataContainer& cData);
+
+        //- Solve the reaction for all cells in the given list
         void solveCellList
         (
-            UList<TDACDataContainer*>& cellList
+            UList<TDACDataContainer*>& cellList,
+            const bool logCPUTimeForAddToTable=false
         );
 
         //- Solve chemistry for once cell
