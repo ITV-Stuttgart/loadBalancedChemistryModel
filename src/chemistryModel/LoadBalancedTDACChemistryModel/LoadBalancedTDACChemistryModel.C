@@ -340,16 +340,11 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solveCell
 
     scalar reduceMechCpuTime_ = 0;
 
-    // Average number of active species
-    scalar nActiveSpecies = 0;
-    scalar nAvg = 0;
 
     if (reduced)
     {
         // Reduce mechanism change the number of species (only active)
         this->mechRed()->reduceMechanism(c, cData.T(), cData.p());
-        nActiveSpecies += this->mechRed()->NsSimp();
-        ++nAvg;
         scalar timeIncr = clockTime_.timeIncrement();
         reduceMechCpuTime_ += timeIncr;
         timeTmp += timeIncr;
@@ -480,6 +475,12 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::addCellTo
     // Not sure if this is necessary
     Rphiq_ = Zero;
 
+    if (this->mechRed()->active())
+    {
+        // Reduce mechanism change the number of species (only active)
+        this->mechRed_->reduceMechanism(c, cData.T(), cData.p());
+    }
+
     forAll(c, i)
     {
         Rphiq_[i] = c[i]/cData.rho()*this->specieThermo_[i].W();
@@ -527,6 +528,14 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::addCellTo
                 growCpuTime_ += clockTime_.timeIncrement();
             }
         }
+    }
+
+    // When operations are done and if mechanism reduction is active,
+    // the number of species (which also affects nEqns) is set back
+    // to the total number of species (stored in the this->mechRed object)
+    if (this->mechRed()->active())
+    {
+        this->nSpecie_ = this->mechRed()->nSpecie();
     }
 }
 
@@ -828,7 +837,7 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
                 (c[i] - c0[i])*this->specieThermo_[i].W()/deltaT[celli];
         }
     }
-  
+
 
     if (this->mechRed_->log() || this->tabulation_->log())
     {
