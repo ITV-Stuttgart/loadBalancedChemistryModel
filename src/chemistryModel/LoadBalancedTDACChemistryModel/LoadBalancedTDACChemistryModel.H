@@ -91,6 +91,9 @@ private:
         //  solved
         label cellsToSolve_;
 
+        //- Store the number of species of the reduced mechanism
+        label nSpecieReduced_;
+
     // Private Member Functions
 
         //- Add cell to cellDataList for parallel processing
@@ -141,10 +144,13 @@ private:
 
         //- Add cell to ISAT table -- after solving
         //  Switch to activate the record time for logging
+        //  Switch if the reduced mechanism needs to be recomputed
+        //  this is required if the cell was sent between processors
         void addCellToTable
         (
             const TDACDataContainer& cData,
-            const bool logCPUTimeForAddToTable
+            const bool logCPUTimeForAddToTable,
+            const bool requiresRecomputeReducedMech=true
         );
 
         //- Lookup the cell data in the ISAT table

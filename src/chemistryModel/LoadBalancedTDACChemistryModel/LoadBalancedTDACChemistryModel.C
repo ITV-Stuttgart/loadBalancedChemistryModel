@@ -348,6 +348,7 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solveCell
         scalar timeIncr = clockTime_.timeIncrement();
         reduceMechCpuTime_ += timeIncr;
         timeTmp += timeIncr;
+        nSpecieReduced_ = this->nSpecie_;
     }
 
     // Calculate the chemical source terms
@@ -426,7 +427,9 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solveCell
         cDataPtr->cpuTime() = duration.count()*1.0E-6;
 
         // Add to table
-        addCellToTable(*cDataPtr,logCPUTimeForAddToTable);
+        // Does not recompute the reduced reaction mechanism as it was just 
+        // computed for this cell in solveCell()
+        addCellToTable(*cDataPtr,logCPUTimeForAddToTable,false);
     }
 }
 
@@ -467,19 +470,14 @@ template<class ReactionThermo, class ThermoType>
 void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::addCellToTable
 (
     const TDACDataContainer& cData,
-    const bool logCPUTimeForAddToTable
+    const bool logCPUTimeForAddToTable,
+    const bool requiresRecomputeReducedMech
 )
 {
     const auto& c = cData.c();
 
     // Not sure if this is necessary
     Rphiq_ = Zero;
-
-    if (this->mechRed()->active())
-    {
-        // Reduce mechanism change the number of species (only active)
-        this->mechRed_->reduceMechanism(c, cData.T(), cData.p());
-    }
 
     forAll(c, i)
     {
@@ -507,6 +505,14 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::addCellTo
         && !this->tabulation_->retrieve(cData.phiq(), Rphiq_)
     )
     {
+        if (this->mechRed()->active())
+        {
+            if (requiresRecomputeReducedMech)
+                this->mechRed_->reduceMechanism(c, cData.T(), cData.p());
+            else
+                this->setNSpecie(nSpecieReduced_);
+        }
+
         label growOrAdd =
             this->tabulation_->add
             (
@@ -528,14 +534,14 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::addCellTo
                 growCpuTime_ += clockTime_.timeIncrement();
             }
         }
-    }
-
-    // When operations are done and if mechanism reduction is active,
-    // the number of species (which also affects nEqns) is set back
-    // to the total number of species (stored in the this->mechRed object)
-    if (this->mechRed()->active())
-    {
-        this->nSpecie_ = this->mechRed()->nSpecie();
+    
+        // When operations are done and if mechanism reduction is active,
+        // the number of species (which also affects nEqns) is set back
+        // to the total number of species (stored in the this->mechRed object)
+        if (this->mechRed()->active())
+        {
+            this->nSpecie_ = this->mechRed()->nSpecie();
+        }
     }
 }
 
