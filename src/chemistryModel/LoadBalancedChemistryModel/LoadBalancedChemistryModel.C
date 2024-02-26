@@ -34,7 +34,8 @@ Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::LoadBalancedChemis
     ReactionThermo& thermo
 )
 :
-    StandardChemistryModel<ReactionThermo, ThermoType>(thermo)
+    StandardChemistryModel<ReactionThermo, ThermoType>(thermo),
+    minFractionOfCellsToSend_(this->template getOrDefault<scalar>("minFractionOfCellsToSend",0.02))
 {
     cellsOnProcessors_.resize(Pstream::nProcs());
     // Gather the number of particles on each processor
@@ -223,7 +224,7 @@ Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::getProcessorBalanc
             
             // Only send information to procK if it is larger than 2% of the
             // total average cell time
-            if ((std::min(capacityOfProcK,cpuTimeOverhead)/cpuTimeProcI) < 0.02)
+            if ((std::min(capacityOfProcK,cpuTimeOverhead)/cpuTimeProcI) < minFractionOfCellsToSend_)
                 continue;
 
             if (newCapacity > 0)

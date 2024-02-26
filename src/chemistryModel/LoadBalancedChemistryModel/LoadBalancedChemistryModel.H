@@ -60,6 +60,13 @@ private:
 
     // Private Member Variables
 
+        //- Minimum percent of cells to send to processors
+        //  Only processors that would receive more the n-percent of cells 
+        //  are considered for load balancing
+        //  --> Value is given as absolute fraction, not in percent!
+        //      Default value is: 0.02
+        scalar minFractionOfCellsToSend_;
+
         //- List to store the cell information in the baseDataContainer
         DynamicList<baseDataContainer> cellDataList_;
 
