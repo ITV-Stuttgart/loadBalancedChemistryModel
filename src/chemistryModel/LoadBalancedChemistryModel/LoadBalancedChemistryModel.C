@@ -189,7 +189,6 @@ Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::getProcessorBalanc
     forAll(sortedCpuTimeOnProcessors,i)
     {
         const label procI = sortedCpuTimeOnProcessors[i].second.first();
-        const label nCellsOnProcI = sortedCpuTimeOnProcessors[i].second.second();
 
         // List of processors to send information to
         DynamicList<Tuple2<scalar,label>>& sendLoadList = 
@@ -222,10 +221,10 @@ Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::getProcessorBalanc
             
             const scalar newCapacity = capacityOfProcK - cpuTimeOverhead;
             
-            // Check that the number of particles to send is greater than 1
-            if ((cpuTimeOverhead/cpuTimeProcI*nCellsOnProcI) < 2)
+            // Only send information to procK if it is larger than 2% of the
+            // total average cell time
+            if ((std::min(capacityOfProcK,cpuTimeOverhead)/cpuTimeProcI) < 0.02)
                 continue;
-            
 
             if (newCapacity > 0)
             {                
