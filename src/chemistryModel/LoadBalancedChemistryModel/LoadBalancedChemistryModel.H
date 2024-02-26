@@ -40,6 +40,7 @@ SourceFiles
  
 #include "StandardChemistryModel.H"
 #include "baseDataContainer.H"
+#include "pointToPointBuffer.H"
 #include "OFstream.H"
  
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
@@ -78,6 +79,18 @@ private:
 
         //- Total cpu time on all processors
         scalar totalCpuTime_;
+
+        //- Store the old processor balancing
+        Tuple2
+        <
+            List<Tuple2<scalar,label>>,
+            List<label>
+        > 
+        processorBalancingData_;
+
+        //- Needs to keep the buffer alive to not loose the information
+        //  about send and receive sizes
+        pointToPointBuffer pBufs_;
 
     // Private Member Functions
 

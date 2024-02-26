@@ -28,6 +28,7 @@ License
 
 #include "LoadBalancedChemistryModel.H"
 
+
 template<class ReactionThermo, class ThermoType>
 Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::LoadBalancedChemistryModel
 (
@@ -493,8 +494,6 @@ Foam::scalar Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::solve
 
     const List<Tuple2<scalar,label>>& sendDataInfo = sendAndReceiveData.first();
     const List<label>& recvProc = sendAndReceiveData.second();
-
-    PstreamBuffers pBufs(Pstream::commsTypes::nonBlocking);
     
     // indices of the reactCellList to create the sub lists to send 
     label start = 0;
@@ -516,7 +515,16 @@ Foam::scalar Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::solve
         );
         
         // send particles 
-        UOPstream toBuffer(toProc,pBufs);
+        UOPstream toBuffer
+        (
+            pBufs_.commsType(),
+            toProc,
+            pBufs_.sendBuffer(toProc),
+            pBufs_.tag(),
+            pBufs_.comm(),
+            false
+        );
+
         label dataSize = end - start;
         toBuffer << dataSize;
         for (label i=start; i < end; i++)
@@ -535,7 +543,10 @@ Foam::scalar Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::solve
         start
     );
 
-    pBufs.finishedSends();
+
+    // for now we update each time
+    pBufs_.update();
+    pBufs_.finishedSends();
 
     DynamicList<baseDataContainer> processorCells;
     
@@ -544,8 +555,19 @@ Foam::scalar Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::solve
     // Read the received information
     forAll(recvProc,i)
     {
+        label receiveBufferPosition=0;
         label procI = recvProc[i];
-        UIPstream fromBuffer(procI,pBufs);
+        UIPstream fromBuffer
+        (
+            pBufs_.commsType(),
+            procI,
+            pBufs_.recvBuffer(procI),
+            receiveBufferPosition,
+            pBufs_.tag(),
+            pBufs_.comm(),
+            false
+        );
+        
         label dataSize;
         fromBuffer >> dataSize;
         receivedDataSizes[i] = dataSize;
@@ -568,14 +590,22 @@ Foam::scalar Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::solve
     // Note: Now the processors to which we originally had send informations
     //       are the ones we receive from and vice versa 
     
-    pBufs.clear();
+    pBufs_.switchSendRecv();
     
     label pI = 0;
     
     forAll(recvProc,i)
     {
         label procI = recvProc[i];
-        UOPstream toBuffer(procI,pBufs);
+        UOPstream toBuffer
+        (
+            pBufs_.commsType(),
+            procI,
+            pBufs_.sendBuffer(procI),
+            pBufs_.tag(),
+            pBufs_.comm(),
+            false
+        );
         
         toBuffer << receivedDataSizes[i];
         
@@ -583,7 +613,7 @@ Foam::scalar Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::solve
             toBuffer << processorCells[pI++];
     }
     
-    pBufs.finishedSends();
+    pBufs_.finishedSends();
     
     start = 0;
     // Receive the particles --> now the sendDataInfo becomes the receive info
@@ -592,8 +622,19 @@ Foam::scalar Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::solve
         const label fromProc = sendDataInfoI.second();
 
         // send particles 
-        UIPstream fromBuffer(fromProc,pBufs);
+        label receiveBufferPosition=0;
         label dataSize;
+        UIPstream fromBuffer
+        (
+            pBufs_.commsType(),
+            fromProc,
+            pBufs_.recvBuffer(fromProc),
+            receiveBufferPosition,
+            pBufs_.tag(),
+            pBufs_.comm(),
+            false
+        );
+
         fromBuffer >> dataSize;
         
         label end = start + dataSize;

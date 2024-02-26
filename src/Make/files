@@ -6,5 +6,7 @@ chemistryModel/LoadBalancedTDACChemistryModel/makeLoadBalancedTDACChemistryModel
 
 chemistrySolver/makeLoadBalancedChemistrySolvers.C
 
+pointToPointBuffer/pointToPointBuffer.C
+
 
 LIB = $(FOAM_USER_LIBBIN)/libloadBalancedChemistryModel
