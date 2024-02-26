@@ -92,6 +92,13 @@ private:
         //  about send and receive sizes
         pointToPointBuffer pBufs_;
 
+        //- Index of current iteration until the send/recv cell information
+        //  is updated
+        label iter_;
+
+        //- Number of iterations till send/recv is updated
+        label maxIterUpdate_;
+
     // Private Member Functions
 
         //- Build the baseDataContainer list from the cells

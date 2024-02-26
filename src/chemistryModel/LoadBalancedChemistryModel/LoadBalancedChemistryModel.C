@@ -47,6 +47,9 @@ Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::LoadBalancedChemis
     Pstream::scatterList(cellsOnProcessors);
 
     cellsOnProcessors_ = cellsOnProcessors;
+
+    maxIterUpdate_ = 10;
+    iter_ = maxIterUpdate_;
 }
 
 
@@ -166,6 +169,13 @@ Foam::Tuple2
 >
 Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::getProcessorBalancing()
 {
+    // check if the processor balancing needs to be updated
+    if (iter_ < maxIterUpdate_)
+    {
+        // return old solution
+        return processorBalancingData_;
+    }
+
     // Number of processors 
     const scalar numProcs = Pstream::nProcs();
 
@@ -274,17 +284,12 @@ Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::getProcessorBalanc
             }
         }
     }
-    
+
+    processorBalancingData_.first() = distributedLoadAllProcs[Pstream::myProcNo()];
+    processorBalancingData_.second() = receiveDataFromProc[Pstream::myProcNo()];
+
     // return only the list for the current processor
-    return Tuple2
-    <
-        List<Foam::Tuple2<scalar,label>>,
-        List<label>
-    >
-    (
-        distributedLoadAllProcs[Pstream::myProcNo()],
-        receiveDataFromProc[Pstream::myProcNo()]
-    );
+    return processorBalancingData_;
 }
 
 
@@ -544,8 +549,13 @@ Foam::scalar Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::solve
     );
 
 
-    // for now we update each time
-    pBufs_.update();
+    // Update every maxIterUpdate and reset iter count
+    if (iter_++ >= maxIterUpdate_)
+    {
+        pBufs_.update();
+        iter_=0;
+    }
+
     pBufs_.finishedSends();
 
     DynamicList<baseDataContainer> processorCells;
