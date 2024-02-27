@@ -1,0 +1,90 @@
+#!/bin/bash
+# Description
+#    Script to build the test executable
+#
+# Author
+#    Jan Wilhelm Gärtner <jan.gaertner@outlook.de> Copyright (C) 2022
+#
+#*---------------------------------------------------------------------------*/
+
+#======================================================================
+# Bash Helper Functions
+#======================================================================
+
+# Function to check the cmake version
+__cmake_version_above()
+{
+    CMAKE_VERSION_NUMBER=$(cmake --version | head -n 1 | cut -d " " -f 3)
+    CMAKE_VERSION_MAJOR=$(echo ${CMAKE_VERSION_NUMBER} | cut -d . -f 1 )
+    CMAKE_VERSION_Minor=$(echo ${CMAKE_VERSION_NUMBER} | cut -d . -f 2 )
+
+    if [ $CMAKE_VERSION_MAJOR -lt 3 ]; then
+        return 0
+    fi
+    if [ $CMAKE_VERSION_Minor -lt 12 ]; then
+        return 0
+    fi
+    return 1
+}
+
+__banner()
+{
+    echo "==============================================================================="
+    echo $*
+    echo "==============================================================================="
+}
+
+
+# Store the project directory
+PROJECT_DIR=$(pwd)
+
+#======================================================================
+# Compile and Install Catch2
+#======================================================================
+# Compile the Catch2 library into a static libray
+
+__banner Install Catch2
+
+# if Catch2_install exist do not reinstall
+if [[ ! -d "Catch2_install" ]]; then 
+    if [[ -d "Catch2_build" ]]; then
+        rm -r Catch2_build
+    fi
+
+    mkdir Catch2_build
+
+    cmake -S ./Catch2 -B Catch2_build   \
+          -DBUILD_TESTING=OFF           \
+          -DCMAKE_INSTALL_PREFIX=${PROJECT_DIR}/Catch2_install  \
+          > log.config
+
+
+    if [ __cmake_version_above ]; then 
+        cmake --build Catch2_build --parallel --target install 
+    else
+        cmake --build Catch2_build --target install
+    fi
+
+    # clean up
+    rm -r Catch2_build
+fi
+
+
+#======================================================================
+# Compile Test Cases
+#======================================================================
+
+__banner Compile Test Cases
+
+cd ${PROJECT_DIR}/src
+
+# Build the tests
+wmake -j -debug 
+
+
+#======================================================================
+# Unwind
+#======================================================================
+
+__banner Complete
+
