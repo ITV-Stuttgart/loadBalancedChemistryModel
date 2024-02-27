@@ -57,6 +57,35 @@ class LoadBalancedChemistryModel
 :
     public StandardChemistryModel<ReactionThermo, ThermoType>
 {
+    public:
+    // Struct to store the information required for sending cells to other
+    // processors
+    struct sendDataStruct
+    {
+        public:
+            // processor to send information to
+            label toProc=-1;
+
+            // percent of own cells to send to processor toProc
+            scalar percToSend=-1;
+
+            // start index in the cell list to send to toProc
+            label startCellInd=-1;
+
+            // end index in the cell list to send to toProc
+            label endCellInd=-1;
+        
+        // Constructor
+
+            sendDataStruct() = default;
+
+            sendDataStruct(scalar perc, label procId)
+            : toProc(procId),percToSend(perc)
+            {}
+    };
+
+
+
 private:
 
     // Private Member Variables
@@ -80,13 +109,14 @@ private:
         //- Total cpu time on all processors
         scalar totalCpuTime_;
 
-        //- Store the old processor balancing
+        //- Store processor balancing data, first entry is a list of sendData
+        //  information, second entry is the recv processor ID
         Tuple2
         <
-            List<Tuple2<scalar,label>>,
+            List<sendDataStruct>,
             List<label>
         > 
-        processorBalancingData_;
+        sendAndReceiveData_;
 
         //- Needs to keep the buffer alive to not loose the information
         //  about send and receive sizes
@@ -122,12 +152,7 @@ private:
         
         //- Get percentage of processor data to send to other processors
         //- to balance the processor load
-        Tuple2
-        <
-            List<Tuple2<scalar,label>>,
-            List<label>
-        > 
-        getProcessorBalancing();
+        void updateProcessorBalancing();
 
         //- Get cpu times of each processor in a descending order
         //  Format:

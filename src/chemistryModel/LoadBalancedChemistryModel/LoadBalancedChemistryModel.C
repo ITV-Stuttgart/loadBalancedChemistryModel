@@ -35,9 +35,14 @@ Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::LoadBalancedChemis
     ReactionThermo& thermo
 )
 :
-    StandardChemistryModel<ReactionThermo, ThermoType>(thermo),
-    minFractionOfCellsToSend_(this->template getOrDefault<scalar>("minFractionOfCellsToSend",0.02))
+    StandardChemistryModel<ReactionThermo, ThermoType>(thermo)
 {
+    auto dict = this->subDictOrAdd("LoadBalancedCoeffs");
+
+    minFractionOfCellsToSend_ = dict.template getOrDefault<scalar>("minFractionOfCellsToSend",0.02);
+    maxIterUpdate_ = dict.template getOrDefault<label>("updateIter",0);
+    Info << "updateIter: "<<maxIterUpdate_<<endl;
+
     cellsOnProcessors_.resize(Pstream::nProcs());
     // Gather the number of particles on each processor
     List<label> cellsOnProcessors(Pstream::nProcs());
@@ -48,7 +53,6 @@ Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::LoadBalancedChemis
 
     cellsOnProcessors_ = cellsOnProcessors;
 
-    maxIterUpdate_ = 10;
     iter_ = maxIterUpdate_;
 }
 
@@ -162,20 +166,9 @@ void Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::cellsToSend
 
 
 template<class ReactionThermo, class ThermoType>
-Foam::Tuple2
-<
-    Foam::List<Foam::Tuple2<scalar,label>>,
-    Foam::List<label>
->
-Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::getProcessorBalancing()
+void Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>
+::updateProcessorBalancing()
 {
-    // check if the processor balancing needs to be updated
-    if (iter_ < maxIterUpdate_)
-    {
-        // return old solution
-        return processorBalancingData_;
-    }
-
     // Number of processors 
     const scalar numProcs = Pstream::nProcs();
 
@@ -192,7 +185,7 @@ Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::getProcessorBalanc
     Info << "Average CPU time : "<<averageCpuTime<<endl;
 
     // list of the distributed load for all processors
-    List<DynamicList<Tuple2<scalar,label>>> distributedLoadAllProcs(numProcs);
+    List<DynamicList<sendDataStruct>> distributedLoadAllProcs(numProcs);
     
     // list of processors to receive data from
     List<DynamicList<label>> receiveDataFromProc(numProcs);
@@ -203,7 +196,7 @@ Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::getProcessorBalanc
         const label procI = sortedCpuTimeOnProcessors[i].second.first();
 
         // List of processors to send information to
-        DynamicList<Tuple2<scalar,label>>& sendLoadList = 
+        DynamicList<sendDataStruct>& sendLoadList = 
             distributedLoadAllProcs[procI];
         
         // Reserve space
@@ -251,7 +244,7 @@ Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::getProcessorBalanc
 
                 sendLoadList.append
                 (
-                    Tuple2<scalar,label>
+                    sendDataStruct
                     (
                         cpuTimeOverhead/cpuTimeProcI,
                         procK
@@ -275,7 +268,7 @@ Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::getProcessorBalanc
                 
                 sendLoadList.append
                 (
-                    Tuple2<scalar,label>
+                    sendDataStruct
                     (
                         capacityOfProcK/cpuTimeProcI,
                         sortedCpuTimeOnProcessors[k].second.first()
@@ -285,11 +278,8 @@ Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::getProcessorBalanc
         }
     }
 
-    processorBalancingData_.first() = distributedLoadAllProcs[Pstream::myProcNo()];
-    processorBalancingData_.second() = receiveDataFromProc[Pstream::myProcNo()];
-
-    // return only the list for the current processor
-    return processorBalancingData_;
+    sendAndReceiveData_.first() = distributedLoadAllProcs[Pstream::myProcNo()];
+    sendAndReceiveData_.second() = receiveDataFromProc[Pstream::myProcNo()];
 }
 
 
@@ -417,7 +407,7 @@ void Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::solveCellList
         
         auto duration = (std::chrono::duration_cast<std::chrono::microseconds>(end-start));
 
-        // Add the time required to solve this particle to the list 
+        // Add the time required to solve this cell to the list 
         // as seconds
         cellData.cpuTime() = duration.count()*1.0E-6;
     }
@@ -495,10 +485,11 @@ Foam::scalar Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::solve
     updateCellDataList(deltaT);
 
     // Get percentage of particles to send/receive from other processors
-    auto sendAndReceiveData = getProcessorBalancing();
+    if (iter_ >= maxIterUpdate_)
+        updateProcessorBalancing();
 
-    const List<Tuple2<scalar,label>>& sendDataInfo = sendAndReceiveData.first();
-    const List<label>& recvProc = sendAndReceiveData.second();
+    List<sendDataStruct>& sendDataInfo = sendAndReceiveData_.first();
+    const List<label>& recvProc = sendAndReceiveData_.second();
     
     // indices of the reactCellList to create the sub lists to send 
     label start = 0;
@@ -506,19 +497,29 @@ Foam::scalar Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::solve
     // Send all particles 
     for (auto& sendDataInfoI : sendDataInfo)
     {
-        const scalar percToSend = sendDataInfoI.first();
-        const label toProc = sendDataInfoI.second();
+        const scalar percToSend = sendDataInfoI.percToSend;
+        const label toProc = sendDataInfoI.toProc;
         
         label end = cellDataList_.size();
-
-        cellsToSend
-        (
-            cellDataList_,
-            totalCpuTime_*percToSend,
-            start,
-            end
-        );
         
+        if (iter_ >= maxIterUpdate_)
+        {
+            cellsToSend
+            (
+                cellDataList_,
+                totalCpuTime_*percToSend,
+                start,
+                end
+            );
+            
+            // Set end and start
+            sendDataInfoI.startCellInd = start;
+            sendDataInfoI.endCellInd = end;
+        }
+
+        start = sendDataInfoI.startCellInd;
+        end = sendDataInfoI.endCellInd;
+
         // send particles 
         UOPstream toBuffer
         (
@@ -556,6 +557,7 @@ Foam::scalar Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::solve
         iter_=0;
     }
 
+    // Exchange data
     pBufs_.finishedSends();
 
     DynamicList<baseDataContainer> processorCells;
@@ -629,7 +631,7 @@ Foam::scalar Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::solve
     // Receive the particles --> now the sendDataInfo becomes the receive info
     for (auto& sendDataInfoI : sendDataInfo)
     {
-        const label fromProc = sendDataInfoI.second();
+        const label fromProc = sendDataInfoI.toProc;
 
         // send particles 
         label receiveBufferPosition=0;
@@ -654,6 +656,9 @@ Foam::scalar Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::solve
         
         start = end;
     }
+
+    // Switch sendAndRecv back
+    pBufs_.switchSendRecv();
 
     // Update the cell values
     forAll(cellDataList_,celli)
