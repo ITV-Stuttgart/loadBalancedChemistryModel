@@ -59,6 +59,35 @@ class LoadBalancedTDACChemistryModel
 :
     public TDACChemistryModel<ReactionThermo, ThermoType>
 {
+public:
+
+    // Struct to store the information required for sending cells to other
+    // processors
+    struct sendDataStruct
+    {
+        public:
+            // processor to send information to
+            label toProc=-1;
+
+            // CPU time to send to processor
+            scalar cpuTimeToSend=-1;
+
+            // start index in the cell list to send to toProc
+            label startCellInd=-1;
+
+            // end index in the cell list to send to toProc
+            label endCellInd=-1;
+        
+        // Constructor
+
+            sendDataStruct() = default;
+
+            sendDataStruct(scalar cpuTimeToSend, label procId)
+            : toProc(procId),cpuTimeToSend(cpuTimeToSend)
+            {}
+    };
+
+
 private:
 
     // Private Memeber Variables for TDAC
@@ -69,7 +98,9 @@ private:
         scalar addNewLeafCpuTime_;
         scalar growCpuTime_;
         scalar solveChemistryCpuTime_;
+        scalar addToTableCpuTime_;
         scalar searchISATCpuTime_;
+        scalar totalCpuTime_;
 
         //- Variable to store the solution vector. 
         //  Allocated here to avoid reallocation
@@ -84,15 +115,21 @@ private:
         //- Switch to check if it is called the first time in the simulation
         bool firstTime_{true};
 
-        //- Total cpu time on all processors
-        scalar totalCpuTime_;
-
         //- Number of cells that were not found in the table and need to be
         //  solved
         label cellsToSolve_;
 
         //- Store the number of species of the reduced mechanism
         label nSpecieReduced_;
+
+        //- Store processor balancing data, first entry is a list of sendData
+        //  information, second entry is the recv processor ID
+        Tuple2
+        <
+            List<sendDataStruct>,
+            List<label>
+        > 
+        sendAndReceiveData_;
 
     // Private Member Functions
 
@@ -121,20 +158,17 @@ private:
         
         //- Get percentage of processor data to send to other processors
         //- to balance the processor load
-        Tuple2
-        <
-            List<Tuple2<scalar,label>>,
-            List<label>
-        > 
-        getProcessorBalancing();
+        void updateProcessorBalancing();
 
         //- Get cpu times of each processor in a descending order
         //  Format:
         //  List[index].first:  CPU time required for last time step
-        //  List[index].second: Returns an Foam::Pair<label> with
-        //                        Pair.first():  processor ID
-        //                        Pair.second(): Number of particles on that processor 
-        List<std::pair<scalar,Pair<label>>> getSortedCPUTimesOnProcessor() const;
+        //  List[index].second: Returns a List<scalar> with:
+        //                        List[0]: processor ID
+        //                        List[1]: Number of cells to compute 
+        //                        List[2]: Time to search ISAT table
+        List<std::pair<scalar,List<scalar>>> 
+        getSortedCPUTimesOnProcessor() const;
         
         //- Update the totalCpuTime_ variable 
         void updateTotalCpuTime

@@ -58,6 +58,7 @@ Foam::Istream& Foam::TDACDataContainer::read
     is >> deltaT_;
     is >> deltaTChem_;
     is >> cpuTime_;
+    is >> addToTableCpuTime_;
     is >> procID_;
     is >> cellID_;
 
@@ -84,6 +85,7 @@ Foam::Ostream& Foam::TDACDataContainer::write
        << deltaT_ << token::SPACE
        << deltaTChem_ << token::SPACE 
        << cpuTime_ << token::SPACE
+       << addToTableCpuTime_ << token::SPACE
        << procID_ << token::SPACE
        << cellID_ << token::SPACE
        << localParticle << endl;

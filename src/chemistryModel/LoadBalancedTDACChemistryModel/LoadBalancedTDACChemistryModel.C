@@ -122,36 +122,50 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::cellsToSe
             break;
         }
 
-        cpuTime += cellList[i]->cpuTime();
+        cpuTime += cellList[i]->cpuTime()+cellList[i]->addToTableCpuTime();
     }
 }
 
 
 template<class ReactionThermo, class ThermoType>
-Foam::Tuple2
-<
-    Foam::List<Foam::Tuple2<scalar,label>>,
-    Foam::List<label>
->
-Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::getProcessorBalancing()
+void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>
+::updateProcessorBalancing()
 {
     // Number of processors 
     const scalar numProcs = Pstream::nProcs();
 
     auto sortedCpuTimeOnProcessors = getSortedCPUTimesOnProcessor();
 
+    if (Pstream::master())
+    {
+        Pout << "procID\ttotalTime\tisatSearchTime\taddToTable\t "<<endl;
+        for (auto& e : sortedCpuTimeOnProcessors)
+            Pout <<e.second[0]<<"\t"<< e.first << "\t"<< e.second[3]<<"\t"<<e.second[2]<<endl;
+    }
+
+
     // calculate average time spent on each cpu
     scalar averageCpuTime = 0;
+    scalar maxAddToTableCpuTime = 0;
     forAll(sortedCpuTimeOnProcessors,i)
     {
         averageCpuTime += sortedCpuTimeOnProcessors[i].first;
+        maxAddToTableCpuTime = std::max(maxAddToTableCpuTime,sortedCpuTimeOnProcessors[i].second[2]);
     }
     averageCpuTime /= numProcs;
     
+    // // For the TDAC model the average CPU time, a.k.a. the target time for 
+    // // balancing is the maximum of the average total time (total time including
+    // // ODE time and time to add to the table) and the time to add to the table.
+    // // This is due to the fact, that the cells are added to the table after 
+    // // solving them. Hence, there is an MPI_Waitall and the time to add to table
+    // // represents the minimum time all processors will need.
+    // averageCpuTime = std::max(averageCpuTime,maxAddToTableCpuTime);
+
     Info << "Average CPU time : "<<averageCpuTime<<endl;
 
     // list of the distributed load for all processors
-    List<DynamicList<Tuple2<scalar,label>>> distributedLoadAllProcs(numProcs);
+    List<DynamicList<sendDataStruct>> distributedLoadAllProcs(numProcs);
     
     // list of processors to receive data from
     List<DynamicList<label>> receiveDataFromProc(numProcs);
@@ -159,11 +173,10 @@ Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::getProcessorBa
     // balance the load by calculating the percentages to be send 
     forAll(sortedCpuTimeOnProcessors,i)
     {
-        const label procI = sortedCpuTimeOnProcessors[i].second.first();
-        const label nCellsToComputeOnProcI = sortedCpuTimeOnProcessors[i].second.second();
+        const label procI = sortedCpuTimeOnProcessors[i].second[0];
 
         // List of processors to send information to
-        DynamicList<Tuple2<scalar,label>>& sendLoadList = 
+        DynamicList<sendDataStruct>& sendLoadList = 
             distributedLoadAllProcs[procI];
         
         // Reserve space
@@ -171,18 +184,20 @@ Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::getProcessorBa
         (
             std::floor(0.5*(numProcs-i))
         );
-        
-        
+
+
+        // Total time cpu time on procI -- including time to solve ODE and 
+        // adding to the table
         const scalar cpuTimeProcI = sortedCpuTimeOnProcessors[i].first;
         
         scalar cpuTimeOverhead = cpuTimeProcI - averageCpuTime;
-        
-        
+
+
         // Loop over the other processors and distribute the load
         // in reverse order
         for (label k=numProcs-1; k > 0; k--)
         {
-            const label procK = sortedCpuTimeOnProcessors[k].second.first();
+            const label procK = sortedCpuTimeOnProcessors[k].second[0];
             
             const scalar cpuTimeProcK = sortedCpuTimeOnProcessors[k].first;
             
@@ -193,10 +208,10 @@ Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::getProcessorBa
             
             const scalar newCapacity = capacityOfProcK - cpuTimeOverhead;
             
-            // Check that the number of particles to send is greater than 1
-            if ((cpuTimeOverhead/cpuTimeProcI*nCellsToComputeOnProcI) < 2)
+            // Only send information to procK if it is larger than 2% of the
+            // total average cell time
+            if ((std::min(capacityOfProcK,cpuTimeOverhead)/cpuTimeProcI) < 0.02)
                 continue;
-            
 
             if (newCapacity > 0)
             {                
@@ -211,9 +226,9 @@ Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::getProcessorBa
 
                 sendLoadList.append
                 (
-                    Tuple2<scalar,label>
+                    sendDataStruct
                     (
-                        cpuTimeOverhead/cpuTimeProcI,
+                        cpuTimeOverhead,
                         procK
                     )
                 );
@@ -235,40 +250,35 @@ Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::getProcessorBa
                 
                 sendLoadList.append
                 (
-                    Tuple2<scalar,label>
+                    sendDataStruct
                     (
-                        capacityOfProcK/cpuTimeProcI,
-                        sortedCpuTimeOnProcessors[k].second.first()
+                        capacityOfProcK,
+                        sortedCpuTimeOnProcessors[k].second[0]
                     )
                 );
             }
         }
     }
-    
-    // return only the list for the current processor
-    return Tuple2
-    <
-        List<Foam::Tuple2<scalar,label>>,
-        List<label>
-    >
-    (
-        distributedLoadAllProcs[Pstream::myProcNo()],
-        receiveDataFromProc[Pstream::myProcNo()]
-    );
+
+    sendAndReceiveData_.first() = distributedLoadAllProcs[Pstream::myProcNo()];
+    sendAndReceiveData_.second() = receiveDataFromProc[Pstream::myProcNo()];
 }
 
 
 template<class ReactionThermo, class ThermoType>
-Foam::List<std::pair<scalar,Foam::Pair<label>>> 
+Foam::List<std::pair<scalar,Foam::List<scalar>>> 
 Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::getSortedCPUTimesOnProcessor() const
 {
     // Number of processors 
     const scalar numProcs = Pstream::nProcs();
         
     // Gather the data from all processors
-    List<Tuple2<scalar,label>> cpuTimeOnProcessors(numProcs);
-    cpuTimeOnProcessors[Pstream::myProcNo()].first() = totalCpuTime_;
-    cpuTimeOnProcessors[Pstream::myProcNo()].second() = cellsToSolve_;
+    List<List<scalar>> cpuTimeOnProcessors(numProcs);
+    cpuTimeOnProcessors[Pstream::myProcNo()].resize(4);
+    cpuTimeOnProcessors[Pstream::myProcNo()][0] = totalCpuTime_;
+    cpuTimeOnProcessors[Pstream::myProcNo()][1] = cellsToSolve_;
+    cpuTimeOnProcessors[Pstream::myProcNo()][2] = addToTableCpuTime_;
+    cpuTimeOnProcessors[Pstream::myProcNo()][3] = searchISATCpuTime_;
 
 
     Pstream::gatherList(cpuTimeOnProcessors);
@@ -276,17 +286,21 @@ Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::getSortedCPUTi
 
     // use std::pair for std::sort algorithm
     // Data structure is:
-    // 1. processor ID
-    // 2. Foam::Pair with:
-    //    - 1. processor ID
-    //    - 2. number of cells stored in cellDataList
-    List<std::pair<scalar,Pair<label>>> sortedCpuTimeOnProcessors(numProcs);
+    // List[index].first:  CPU time required for last time step
+    // List[index].second: Returns a List<scalar> with:
+    //                       List[0]: processor ID
+    //                       List[1]: Number of cells to compute 
+    //                       List[2]: Time to add cells to table
+    List<std::pair<scalar,List<scalar>>> sortedCpuTimeOnProcessors(numProcs);
     
     forAll(sortedCpuTimeOnProcessors,i)
     {
-        sortedCpuTimeOnProcessors[i].first = cpuTimeOnProcessors[i].first();
-        sortedCpuTimeOnProcessors[i].second.first() = i;
-        sortedCpuTimeOnProcessors[i].second.second() = cpuTimeOnProcessors[i].second();
+        sortedCpuTimeOnProcessors[i].first = cpuTimeOnProcessors[i][0];
+        sortedCpuTimeOnProcessors[i].second.resize(4);
+        sortedCpuTimeOnProcessors[i].second[0] = i;
+        sortedCpuTimeOnProcessors[i].second[1] = cpuTimeOnProcessors[i][1];
+        sortedCpuTimeOnProcessors[i].second[2] = cpuTimeOnProcessors[i][2];
+        sortedCpuTimeOnProcessors[i].second[3] = cpuTimeOnProcessors[i][3];
     }
     
     // sort using std::sort()
@@ -295,7 +309,7 @@ Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::getSortedCPUTi
     (
         sortedCpuTimeOnProcessors.begin(), 
         sortedCpuTimeOnProcessors.end(),
-        std::greater<std::pair<scalar,Pair<label>>>()
+        std::greater<std::pair<scalar,List<scalar>>>()
     );
 
     return sortedCpuTimeOnProcessors;
@@ -309,10 +323,14 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::updateTot
 )
 {
     // Calculate the total time spent solving the particles on this processor
-    totalCpuTime_  = searchISATCpuTime_;
-    
+    totalCpuTime_  = 0;
+    addToTableCpuTime_ = 0;
     for (const auto& cDataPtr : cellList)
-        totalCpuTime_ += cDataPtr->cpuTime();
+    {
+        addToTableCpuTime_ += cDataPtr->addToTableCpuTime();
+        totalCpuTime_ += (cDataPtr->cpuTime()+cDataPtr->addToTableCpuTime());
+    }
+
 }
 
 
@@ -474,6 +492,11 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::addCellTo
     const bool requiresRecomputeReducedMech
 )
 {
+    // We cannot use here cpuTimeIncrement() of OpenFOAM as this 
+    // returns only measurements in 100Hz or 1000Hz intervals depending
+    // on the installed kernel 
+    auto start = std::chrono::high_resolution_clock::now();
+
     const auto& c = cData.c();
 
     // Not sure if this is necessary
@@ -523,6 +546,11 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::addCellTo
         {
             const label celli = cData.cellID();
 
+            auto end = std::chrono::high_resolution_clock::now();
+            auto duration = (std::chrono::duration_cast<std::chrono::microseconds>(end-start));
+            // Add the time to the cell data container
+            cData.setAddToTableCpuTime(duration.count()*1.0E-6);
+
             if (growOrAdd)
             {
                 this->setTabulationResultsAdd(celli);
@@ -560,6 +588,8 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
     //         << "simulations." << nl
     //         << "Please run the simulation in parallel"
     //         << exit(FatalError);
+        
+
 
     // List of cells that need to be solved
     DynamicList<TDACDataContainer*> cellList(cellDataField_.size());
@@ -684,11 +714,10 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
     }
     else
     {
-        // Get percentage of particles to send/receive from other processors
-        auto sendAndReceiveData = getProcessorBalancing();
+        updateProcessorBalancing();
 
-        const List<Tuple2<scalar,label>>& sendDataInfo = sendAndReceiveData.first();
-        const List<label>& recvProc = sendAndReceiveData.second();
+        const List<sendDataStruct>& sendDataInfo = sendAndReceiveData_.first();
+        const List<label>& recvProc = sendAndReceiveData_.second();
 
         PstreamBuffers pBufs(Pstream::commsTypes::nonBlocking);
         
@@ -698,15 +727,15 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
         // Send all particles 
         for (auto& sendDataInfoI : sendDataInfo)
         {
-            const scalar percToSend = sendDataInfoI.first();
-            const label toProc = sendDataInfoI.second();
+            const scalar cpuTimeToSend = sendDataInfoI.cpuTimeToSend;
+            const label toProc = sendDataInfoI.toProc;
             
             label end = cellList.size();
 
             cellsToSend
             (
                 cellList,
-                totalCpuTime_*percToSend,
+                cpuTimeToSend,
                 start,
                 end
             );
@@ -734,7 +763,6 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
         pBufs.finishedSends();
 
         DynamicList<TDACDataContainer> processorCells;
-        
         
         List<label> receivedDataSizes(recvProc.size());
         
@@ -765,11 +793,11 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
             processorCellsPtr[i] = &processorCells[i];
         }
 
-        // Start solving local to compute particles
-        solveCellList(localToComputeParticles);
+        // Solve the local cells first
+        solveCellList(localToComputeParticles,true);
 
         // Solve the chemistry on processor particles
-        solveCellList(processorCellsPtr);
+        solveCellList(processorCellsPtr,false);
 
         // Send the information back 
         // Note: Now the processors to which we originally had send informations
@@ -796,7 +824,7 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
         // Receive the particles --> now the sendDataInfo becomes the receive info
         for (auto& sendDataInfoI : sendDataInfo)
         {
-            const label fromProc = sendDataInfoI.second();
+            const label fromProc = sendDataInfoI.toProc;
 
             // send particles 
             UIPstream fromBuffer(fromProc,pBufs);
@@ -810,8 +838,6 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
             
             start = end;
         }
-
-        updateTotalCpuTime(cellList); 
     }
 
     // ========================================================================
@@ -829,7 +855,7 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
         const auto& c0 = cData.c0();
 
         // Add cell to ISAT table and log CPU time
-        addCellToTable(cData,true);
+        // addCellToTable(cData,true);
 
         deltaTMin = min(this->deltaTChem_[celli], deltaTMin);
 
@@ -844,6 +870,7 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
         }
     }
 
+    updateTotalCpuTime(cellList); 
 
     if (this->mechRed_->log() || this->tabulation_->log())
     {

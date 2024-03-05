@@ -109,6 +109,9 @@ class TDACDataContainer
         //- cpu time required for computation - default init to zero
         scalar cpuTime_{0};
 
+        //- Store the time required to add the cell to the table
+        mutable scalar addToTableCpuTime_{0};
+
         //- Store processor ID
         label procID_;
 
@@ -179,6 +182,9 @@ class TDACDataContainer
             //- Access cpu time
             scalar& cpuTime() {return cpuTime_;}
 
+            //- Add cell to table cpu time
+            scalar& addToTableCpuTime() {return addToTableCpuTime_;}
+
             //- Acess cellID
             label& cellID() {return cellID_;}
 
@@ -214,8 +220,17 @@ class TDACDataContainer
             //- Access cpu time
             const scalar& cpuTime() const {return cpuTime_;}
 
+            //- Add cell to table cpu time
+            const scalar& addToTableCpuTime() const {return addToTableCpuTime_;}
+
             //- Acess cellID
             const label& cellID() const {return cellID_;}
+
+            //- Set CPU time 
+            void setAddToTableCpuTime(const scalar time) const
+            {
+                addToTableCpuTime_ = time;
+            }
 
     // Check if container had been streamed 
 
