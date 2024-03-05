@@ -136,31 +136,14 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>
 
     auto sortedCpuTimeOnProcessors = getSortedCPUTimesOnProcessor();
 
-    if (Pstream::master())
-    {
-        Pout << "procID\ttotalTime\tisatSearchTime\taddToTable\t "<<endl;
-        for (auto& e : sortedCpuTimeOnProcessors)
-            Pout <<e.second[0]<<"\t"<< e.first << "\t"<< e.second[3]<<"\t"<<e.second[2]<<endl;
-    }
-
-
     // calculate average time spent on each cpu
     scalar averageCpuTime = 0;
-    scalar maxAddToTableCpuTime = 0;
     forAll(sortedCpuTimeOnProcessors,i)
     {
         averageCpuTime += sortedCpuTimeOnProcessors[i].first;
-        maxAddToTableCpuTime = std::max(maxAddToTableCpuTime,sortedCpuTimeOnProcessors[i].second[2]);
     }
     averageCpuTime /= numProcs;
-    
-    // // For the TDAC model the average CPU time, a.k.a. the target time for 
-    // // balancing is the maximum of the average total time (total time including
-    // // ODE time and time to add to the table) and the time to add to the table.
-    // // This is due to the fact, that the cells are added to the table after 
-    // // solving them. Hence, there is an MPI_Waitall and the time to add to table
-    // // represents the minimum time all processors will need.
-    // averageCpuTime = std::max(averageCpuTime,maxAddToTableCpuTime);
+
 
     Info << "Average CPU time : "<<averageCpuTime<<endl;
 
