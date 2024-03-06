@@ -42,6 +42,7 @@ SourceFiles
 #include "chemistryReductionMethod.H"
 #include "chemistryTabulationMethod.H"
 #include "TDACDataContainer.H"
+#include "pointToPointBuffer.H"
 #include "OFstream.H"
 #include "clockTime.H"
  
@@ -134,6 +135,18 @@ private:
         //- Store remote computed cells in a separate table
         autoPtr<chemistryTabulationMethod<ReactionThermo, ThermoType>>
             tabulationRemote_;
+
+        //- Needs to keep the buffer alive to not loose the information
+        //  about send and receive sizes
+        pointToPointBuffer pBufs_;
+
+        //- Index of current iteration before the proc-tp-proc connection
+        //  is recalculated for the load balancing
+        label iter_;
+
+        //- Maximum number of iterations before the proc-to-proc load balancing
+        //  is updated
+        label maxIterUpdate_;
 
     // Private Member Functions
 

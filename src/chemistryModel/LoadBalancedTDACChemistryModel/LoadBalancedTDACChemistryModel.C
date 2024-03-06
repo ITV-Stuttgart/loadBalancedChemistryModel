@@ -48,6 +48,14 @@ Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>
         *this
     );
 
+    auto dict = this->subDictOrAdd("LoadBalancedTDACCoeffs");
+
+    maxIterUpdate_ = dict.template getOrDefault<label>("updateIter",0);
+    Info << "updateIter: "<<maxIterUpdate_<<endl;
+
+    // Set iter to maxIterUpdate to force update in the first iteration
+    iter_ = maxIterUpdate_;
+
 
     // Initialize cell list
     tmp<volScalarField> trho(this->thermo().rho());
@@ -144,6 +152,14 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>
     const scalar numProcs = Pstream::nProcs();
 
     auto sortedCpuTimeOnProcessors = getSortedCPUTimesOnProcessor();
+
+    // if (Pstream::master())
+    // {
+    //     Pout << "procID\ttotalTime\tisatSearchTime\taddToTable\t "<<endl;
+    //     for (auto& e : sortedCpuTimeOnProcessors)
+    //         Pout <<e.second[0]<<"\t"<< e.first << "\t"<< e.second[3]<<"\t"<<e.second[2]<<endl;
+    // }
+
 
     // calculate average time spent on each cpu
     scalar averageCpuTime = 0;
@@ -410,7 +426,7 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solveCell
     UList<TDACDataContainer*>& cellList,
     const bool isLocal
 )
-{    
+{
     for (TDACDataContainer* cDataPtr : cellList)
     {
         // Check if it now can be found in table
@@ -722,12 +738,11 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
     }
     else
     {
-        updateProcessorBalancing();
+        if (iter_ >= maxIterUpdate_)
+            updateProcessorBalancing();
 
         const List<sendDataStruct>& sendDataInfo = sendAndReceiveData_.first();
         const List<label>& recvProc = sendAndReceiveData_.second();
-
-        PstreamBuffers pBufs(Pstream::commsTypes::nonBlocking);
         
         // indices of the reactCellList to create the sub lists to send 
         label start = 0;
@@ -749,7 +764,16 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
             );
             
             // send particles 
-            UOPstream toBuffer(toProc,pBufs);
+            UOPstream toBuffer
+            (
+                pBufs_.commsType(),
+                toProc,
+                pBufs_.sendBuffer(toProc),
+                pBufs_.tag(),
+                pBufs_.comm(),
+                false
+            );
+
             label dataSize = end - start;
             toBuffer << dataSize;
             for (label i=start; i < end; i++)
@@ -761,14 +785,22 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
         }
         
         // Set local to compute particle list
-        SubList<TDACDataContainer*> localToComputeParticles
+        SubList<TDACDataContainer*> localToComputeCells
         (
             cellList,
             cellList.size()-start,
             start
         );
 
-        pBufs.finishedSends();
+        if (iter_++ >= maxIterUpdate_)
+        {
+            pBufs_.update(false);
+            iter_ = 0;
+        }
+        else
+            pBufs_.update(true); // Exchange sizes only -- do not call all-to-all
+
+        pBufs_.finishedSends();
 
         DynamicList<TDACDataContainer> processorCells;
         
@@ -777,8 +809,19 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
         // Read the received information
         forAll(recvProc,i)
         {
+            label receiveBufferPosition=0;
             label procI = recvProc[i];
-            UIPstream fromBuffer(procI,pBufs);
+            UIPstream fromBuffer
+            (
+                pBufs_.commsType(),
+                procI,
+                pBufs_.recvBuffer(procI),
+                receiveBufferPosition,
+                pBufs_.tag(),
+                pBufs_.comm(),
+                false
+            );
+
             label dataSize;
             fromBuffer >> dataSize;
             receivedDataSizes[i] = dataSize;
@@ -802,7 +845,7 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
         }
 
         // Solve the local cells first
-        solveCellList(localToComputeParticles,true);
+        solveCellList(localToComputeCells,true);
 
         // Solve the chemistry on processor particles
         solveCellList(processorCellsPtr,false);
@@ -811,14 +854,22 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
         // Note: Now the processors to which we originally had send informations
         //       are the ones we receive from and vice versa 
         
-        pBufs.clear();
+        pBufs_.switchSendRecv();
         
         label pI = 0;
         
         forAll(recvProc,i)
         {
             label procI = recvProc[i];
-            UOPstream toBuffer(procI,pBufs);
+            UOPstream toBuffer
+            (
+                pBufs_.commsType(),
+                procI,
+                pBufs_.sendBuffer(procI),
+                pBufs_.tag(),
+                pBufs_.comm(),
+                false
+            );
             
             toBuffer << receivedDataSizes[i];
             
@@ -826,30 +877,66 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
                 toBuffer << processorCells[pI++];
         }
         
-        pBufs.finishedSends();
+        pBufs_.finishedSends();
         
         start = 0;
+        label end = 0;
         // Receive the particles --> now the sendDataInfo becomes the receive info
         for (auto& sendDataInfoI : sendDataInfo)
         {
             const label fromProc = sendDataInfoI.toProc;
 
             // send particles 
-            UIPstream fromBuffer(fromProc,pBufs);
+            label receiveBufferPosition=0;
             label dataSize;
+            UIPstream fromBuffer
+            (
+                pBufs_.commsType(),
+                fromProc,
+                pBufs_.recvBuffer(fromProc),
+                receiveBufferPosition,
+                pBufs_.tag(),
+                pBufs_.comm(),
+                false
+            );
+
             fromBuffer >> dataSize;
             
-            label end = start + dataSize;
+            end = start + dataSize;
             
             for (label i=start; i < end; i++)
                 fromBuffer >> *(cellList[i]);
             
             start = end;
         }
+
+        // Switch sendAndRecv back
+        pBufs_.switchSendRecv();
+
+        // =====================================================================
+        //                      Update Table for Remote cells
+        // =====================================================================
+
+        // Remote cells are all from start to end 
+        SubList<TDACDataContainer*> remoteComputedCells
+        (
+            cellList,
+            0,
+            end
+        );
+
+        for (const auto& cDataPtr : remoteComputedCells)
+        {
+            // dereference pointer
+            const auto& cData = *cDataPtr;
+
+            // Add cell to ISAT table and log CPU time
+            addCellToTable(cData,true);
+        }
     }
 
     // ========================================================================
-    //                      Update Table
+    //                      Update Reaction Rate
     // ========================================================================
 
     for (const auto& cDataPtr : cellList)
@@ -861,9 +948,6 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
 
         const auto& c = cData.c();
         const auto& c0 = cData.c0();
-
-        // Add cell to ISAT table and log CPU time
-        addCellToTable(cData,true);
 
         deltaTMin = min(this->deltaTChem_[celli], deltaTMin);
 
@@ -877,6 +961,7 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
                 (c[i] - c0[i])*this->specieThermo_[i].W()/deltaT[celli];
         }
     }
+
 
     updateTotalCpuTime(cellList); 
 

@@ -51,7 +51,7 @@ Author
 
 TEST_CASE("pointToPointBuffer-Test")
 {
-    // =========================================================================
+ // =========================================================================
     //                      Prepare Case
     // =========================================================================
     // Replace setRootCase.H for Catch2   
@@ -87,8 +87,6 @@ TEST_CASE("pointToPointBuffer-Test")
     }
 
 
-
-    Info << "Start streaming"<<endl;
     // Create the UOPstream object
     if (Pstream::myProcNo() == 0)
     {
@@ -108,11 +106,8 @@ TEST_CASE("pointToPointBuffer-Test")
     // Update the send and receive buffers
     pBuf.update();
 
-    Info << "Start sending"<<endl;
     pBuf.finishedSends();
 
-
-    Info << "Start receiving"<<endl;
     // Now read data 
     // Create the UOPstream object
     labelList recvData;
@@ -124,6 +119,10 @@ TEST_CASE("pointToPointBuffer-Test")
 
         fromBuffer >> recvData;
         REQUIRE(recvData.size() == 5);
+        forAll(recvData,i)
+        {
+            REQUIRE(recvData[i] == 5);
+        }
     }
     else if (Pstream::myProcNo() == 3)
     {
@@ -133,7 +132,85 @@ TEST_CASE("pointToPointBuffer-Test")
 
         fromBuffer >> recvData;
         REQUIRE(recvData.size() == 10);
+        forAll(recvData,i)
+        {
+            REQUIRE(recvData[i] == 10);
+        }
+    }
+
+    // =========================================================================
+    // Now send again from processor 0 to 3 and 3 to 0
+    // But this time use double the number of entries
+    Info << "*** Test with exchange sizes only ***"<<endl;
+
+
+    if (Pstream::myProcNo() == 0)
+    {
+        myData.resize(15);
+        forAll(myData,i)
+        {
+            myData[i] = 15;
+        }
+    }
+    else if  (Pstream::myProcNo() == 3)
+    {
+        myData.resize(8);
+        forAll(myData,i)
+        {
+            myData[i] = 8;
+        }
+    }
+
+    // Create the UOPstream object
+    if (Pstream::myProcNo() == 0)
+    {
+        label toProc = 3;
+        UOPstream toBuffer(pBuf.commsType(),toProc,pBuf.sendBuffer(toProc),pBuf.tag(),pBuf.comm(),false);
+
+        toBuffer << myData;
+    }
+    else if (Pstream::myProcNo() == 3)
+    {
+        label toProc = 0;
+        UOPstream toBuffer(pBuf.commsType(),toProc,pBuf.sendBuffer(toProc),pBuf.tag(),pBuf.comm(),false);
+
+        toBuffer << myData;
+    }
+
+    // Update the send and receive buffers
+    // Only exchange sizes
+    pBuf.update(true);
+
+    pBuf.finishedSends();
+
+    // Now read data 
+    // Create the UOPstream object
+    recvData.clear();
+    if (Pstream::myProcNo() == 0)
+    {
+        label fromProc = 3;
+        label receiveBufferPosition=0;
+        UIPstream fromBuffer(pBuf.commsType(),fromProc,pBuf.recvBuffer(fromProc),receiveBufferPosition,pBuf.tag(),pBuf.comm(),false);
+
+        fromBuffer >> recvData;
+        REQUIRE(recvData.size() == 8);
+        forAll(recvData,i)
+        {
+            REQUIRE(recvData[i] == 8);
+        }
+    }
+    else if (Pstream::myProcNo() == 3)
+    {
+        label fromProc = 0;
+        label receiveBufferPosition=0;
+        UIPstream fromBuffer(pBuf.commsType(),fromProc,pBuf.recvBuffer(fromProc),receiveBufferPosition,pBuf.tag(),pBuf.comm(),false);
+
+        fromBuffer >> recvData;
+        REQUIRE(recvData.size() == 15);
+        forAll(recvData,i)
+        {
+            REQUIRE(recvData[i] == 15);
+        }
     }
 }
-
 

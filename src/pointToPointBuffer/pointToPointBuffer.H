@@ -70,9 +70,9 @@ class pointToPointBuffer
         List<DynamicList<char>> recvBufferList_;
     
         //- Store the size of the buffer
-        List<label> sendBufferSize_;
+        List<std::streamsize> sendBufferSize_;
 
-        List<label> recvBufferSize_;
+        List<std::streamsize> recvBufferSize_;
 
         //- Always non-blocking communication
         const UPstream::commsTypes commsType_;
@@ -85,6 +85,11 @@ class pointToPointBuffer
 
         //- Check that the buffer is the expected size
         void checkBufferSize();
+
+        //- Echange the send/recv buffer sizes without updatind the relationship
+        //  between sending and receiving processors
+        //  Note: send/recv coupling is read from previous send/recv sizes
+        void exchangeBufferSizes();
 
     public:
     
@@ -100,12 +105,10 @@ class pointToPointBuffer
 
     // Modify
 
-        //- Update the buffer sizes with a given list of send sizes
-        void update(const List<label>& sendSizes);
-
         //- Update the send and receive buffers based on the current 
         //  sendBufferList
-        void update();
+        //  
+        void update(const bool onlyExchangeSizes=false);
 
         //- Exchange all information
         void finishedSends();
