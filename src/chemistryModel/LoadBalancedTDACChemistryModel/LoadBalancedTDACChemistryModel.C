@@ -33,13 +33,22 @@ License
 
 
 template<class ReactionThermo, class ThermoType>
-Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::LoadBalancedTDACChemistryModel
+Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>
+::LoadBalancedTDACChemistryModel
 (
     ReactionThermo& thermo
 )
 :
     TDACChemistryModel<ReactionThermo, ThermoType>(thermo)
 {
+    // Create the table for the remote cell computation
+    tabulationRemote_ = chemistryTabulationMethod<ReactionThermo, ThermoType>::New
+    (
+        *this,
+        *this
+    );
+
+
     // Initialize cell list
     tmp<volScalarField> trho(this->thermo().rho());
     const scalarField& rho = trho();
@@ -399,14 +408,14 @@ template<class ReactionThermo, class ThermoType>
 void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solveCellList
 (
     UList<TDACDataContainer*>& cellList,
-    const bool logCPUTimeForAddToTable
+    const bool isLocal
 )
 {    
     for (TDACDataContainer* cDataPtr : cellList)
     {
         // Check if it now can be found in table
         // this is possible if a previous cell computed this result
-        if (lookUpCellInTable(*cDataPtr))
+        if (lookUpCellInTable(*cDataPtr,isLocal))
             continue;
 
         // We cannot use here cpuTimeIncrement() of OpenFOAM as this 
@@ -430,21 +439,29 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solveCell
         // Add to table
         // Does not recompute the reduced reaction mechanism as it was just 
         // computed for this cell in solveCell()
-        addCellToTable(*cDataPtr,logCPUTimeForAddToTable,false);
+        addCellToTable(*cDataPtr,isLocal,false);
     }
 }
 
 
 template<class ReactionThermo, class ThermoType>
-bool Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::lookUpCellInTable
+bool Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>
+::lookUpCellInTable
 (
-    TDACDataContainer& cData
+    TDACDataContainer& cData,
+    const bool isLocal
 )
 {
+    chemistryTabulationMethod<ReactionThermo, ThermoType>* tabPtr;
+    if (isLocal)
+        tabPtr = this->tabulation_.get();
+    else
+        tabPtr = this->tabulationRemote_.get();
+
     if 
     (
-        this->tabulation_->active() 
-     && this->tabulation_->retrieve(cData.phiq(), Rphiq_)
+        tabPtr->active() 
+     && tabPtr->retrieve(cData.phiq(), Rphiq_)
     )
     {
         // Note: first nSpecie entries are the Yi values in phiq
@@ -471,10 +488,17 @@ template<class ReactionThermo, class ThermoType>
 void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::addCellToTable
 (
     const TDACDataContainer& cData,
-    const bool logCPUTimeForAddToTable,
+    const bool isLocal,
     const bool requiresRecomputeReducedMech
 )
 {
+    chemistryTabulationMethod<ReactionThermo, ThermoType>* tabPtr;
+
+    if (isLocal)
+        tabPtr = this->tabulation_.get();
+    else
+        tabPtr = this->tabulationRemote_.get();
+
     // We cannot use here cpuTimeIncrement() of OpenFOAM as this 
     // returns only measurements in 100Hz or 1000Hz intervals depending
     // on the installed kernel 
@@ -489,7 +513,7 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::addCellTo
     {
         Rphiq_[i] = c[i]/cData.rho()*this->specieThermo_[i].W();
     }
-    if (this->tabulation_->variableTimeStep())
+    if (tabPtr->variableTimeStep())
     {
         Rphiq_[Rphiq_.size()-3] = cData.T();
         Rphiq_[Rphiq_.size()-2] = cData.p();
@@ -507,8 +531,8 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::addCellTo
     // the stored points (either expand or add)
     if 
     (
-        this->tabulation_->active() 
-        && !this->tabulation_->retrieve(cData.phiq(), Rphiq_)
+        tabPtr->active() 
+        && !tabPtr->retrieve(cData.phiq(), Rphiq_)
     )
     {
         if (this->mechRed()->active())
@@ -520,12 +544,13 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::addCellTo
         }
 
         label growOrAdd =
-            this->tabulation_->add
+            tabPtr->add
             (
                 cData.phiq(), Rphiq_, cData.rho(), cData.deltaT()
             );
 
-        if (logCPUTimeForAddToTable)
+        // Only collect information for local cells
+        if (isLocal)
         {
             const label celli = cData.cellID();
 
@@ -838,7 +863,7 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
         const auto& c0 = cData.c0();
 
         // Add cell to ISAT table and log CPU time
-        // addCellToTable(cData,true);
+        addCellToTable(cData,true);
 
         deltaTMin = min(this->deltaTChem_[celli], deltaTMin);
 

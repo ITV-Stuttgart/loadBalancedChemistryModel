@@ -131,6 +131,10 @@ private:
         > 
         sendAndReceiveData_;
 
+        //- Store remote computed cells in a separate table
+        autoPtr<chemistryTabulationMethod<ReactionThermo, ThermoType>>
+            tabulationRemote_;
+
     // Private Member Functions
 
         //- Add cell to cellDataList for parallel processing
@@ -177,24 +181,29 @@ private:
         );
 
         //- Add cell to ISAT table -- after solving
-        //  Switch to activate the record time for logging
+        //  Switch to set if local or remote cells are solved
         //  Switch if the reduced mechanism needs to be recomputed
         //  this is required if the cell was sent between processors
         void addCellToTable
         (
             const TDACDataContainer& cData,
-            const bool logCPUTimeForAddToTable,
+            const bool isLocal,
             const bool requiresRecomputeReducedMech=true
         );
 
         //- Lookup the cell data in the ISAT table
-        bool lookUpCellInTable(TDACDataContainer& cData);
+        bool lookUpCellInTable
+        (
+            TDACDataContainer& cData,
+            const bool isLocal
+        );
 
         //- Solve the reaction for all cells in the given list
+        //  Flag sets if it is local or remote cell computation
         void solveCellList
         (
             UList<TDACDataContainer*>& cellList,
-            const bool logCPUTimeForAddToTable=false
+            const bool isLocal
         );
 
         //- Solve chemistry for once cell
