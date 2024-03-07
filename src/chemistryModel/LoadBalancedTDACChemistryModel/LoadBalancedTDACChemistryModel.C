@@ -983,6 +983,7 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
     {
         // Every time-step, look if the tabulation should be updated
         this->tabulation_->update();
+        this->tabulationRemote_->update();
 
         // Write the performance of the tabulation
         this->tabulation_->writePerformance();
