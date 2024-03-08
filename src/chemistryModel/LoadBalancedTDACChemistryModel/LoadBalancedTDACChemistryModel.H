@@ -72,12 +72,6 @@ public:
 
             // CPU time to send to processor
             scalar cpuTimeToSend=-1;
-
-            // start index in the cell list to send to toProc
-            label startCellInd=-1;
-
-            // end index in the cell list to send to toProc
-            label endCellInd=-1;
         
         // Constructor
 
@@ -135,6 +129,13 @@ private:
         //- Store remote computed cells in a separate table
         autoPtr<chemistryTabulationMethod<ReactionThermo, ThermoType>>
             tabulationRemote_;
+
+        //- List of size Pstream::nProcs() which is true if data is send to
+        List<bool> sendToProcessor_;
+
+        //- List of size Pstream::nProcs() which is true if data is received 
+        //- from processor
+        List<bool> receiveFromProcessor_;
 
         //- Needs to keep the buffer alive to not loose the information
         //  about send and receive sizes

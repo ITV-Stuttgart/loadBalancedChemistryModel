@@ -30,14 +30,8 @@ Author
 
 #include "pointToPointBuffer.H"
 
-void Foam::pointToPointBuffer::update(const bool onlyExchangeSizes)
+void Foam::pointToPointBuffer::update()
 {
-    if (onlyExchangeSizes)
-    {
-        exchangeBufferSizes();
-        return;
-    }
-
     forAll(sendBufferList_,procI)
     {
         sendBufferSize_[procI] = sendBufferList_[procI].byteSize();
@@ -120,6 +114,60 @@ void Foam::pointToPointBuffer::finishedSends()
 }
 
 
+void Foam::pointToPointBuffer::finishedSends
+(
+    const List<bool>& sendToProcessor,
+    const List<bool>& receiveFromProcessor
+)
+{
+    exchangeBufferSizes(sendToProcessor,receiveFromProcessor);
+
+    const label startOfRequests = UPstream::nRequests();
+
+    checkBufferSize();
+
+    forAll(sendBufferSize_,procI)
+    {
+        if (recvBufferSize_[procI] > 0 && procI != Pstream::myProcNo())
+        {
+            IPstream::read
+            (
+                commsType_,
+                procI,
+                recvBufferList_[procI].data(),
+                recvBufferSize_[procI],
+                UPstream::msgType(),
+                comm_
+            );  
+        }
+    }
+    
+    forAll(sendBufferSize_,procI)
+    {
+        if (sendBufferSize_[procI] > 0 && procI != Pstream::myProcNo())
+        {
+            OPstream::write
+            (
+                commsType_,
+                procI,
+                sendBufferList_[procI].cdata(),
+                sendBufferList_[procI].byteSize(),
+                UPstream::msgType(),
+                comm_
+            );
+        }
+    }
+
+    UPstream::waitRequests(startOfRequests);
+
+    // Clear the send buffer
+    forAll(sendBufferList_,procI)
+    {
+        sendBufferList_[procI].clear();
+    }
+}
+
+
 void Foam::pointToPointBuffer::checkBufferSize()
 {
     forAll(sendBufferSize_,procI)
@@ -143,9 +191,23 @@ void Foam::pointToPointBuffer::checkBufferSize()
 }
 
 
-void Foam::pointToPointBuffer::exchangeBufferSizes()
+void Foam::pointToPointBuffer::exchangeBufferSizes
+(
+    const List<bool>& sendToProcessor,
+    const List<bool>& receiveFromProcessor
+)
 {
     const label startOfRequests = UPstream::nRequests();
+
+    // Update the sendBufferSizes based on the current buffers
+    forAll(sendBufferSize_,procI)
+    {
+        sendBufferSize_[procI] = sendBufferList_[procI].byteSize();
+    }
+
+    recvBufferSize_.resize_nocopy(sendBufferSize_.size());
+    // Fill with zero
+    std::fill(recvBufferSize_.begin(),recvBufferSize_.end(),0);
 
     // Create temporary receive buffer
     List<List<char>> recvBuffer(Pstream::nProcs());
@@ -154,7 +216,7 @@ void Foam::pointToPointBuffer::exchangeBufferSizes()
 
     forAll(recvBufferSize_,procI)
     {
-        if (recvBufferSize_[procI] > 0 && procI != Pstream::myProcNo())
+        if (receiveFromProcessor[procI] && procI != Pstream::myProcNo())
         {
             IPstream::read
             (
@@ -170,7 +232,7 @@ void Foam::pointToPointBuffer::exchangeBufferSizes()
     
     forAll(sendBufferSize_,procI)
     {
-        if (sendBufferSize_[procI] > 0 && procI != Pstream::myProcNo())
+        if (sendToProcessor[procI] && procI != Pstream::myProcNo())
         {
             sendBufferSize_[procI] = sendBufferList_[procI].byteSize();
             OPstream::write
@@ -189,7 +251,7 @@ void Foam::pointToPointBuffer::exchangeBufferSizes()
 
     forAll(recvBufferSize_,procI)
     {
-        if (recvBufferSize_[procI] > 0 && procI != Pstream::myProcNo())
+        if (receiveFromProcessor[procI] && procI != Pstream::myProcNo())
         {
             std::streamsize* ptr = 
                 reinterpret_cast<std::streamsize*>(recvBuffer[procI].data());

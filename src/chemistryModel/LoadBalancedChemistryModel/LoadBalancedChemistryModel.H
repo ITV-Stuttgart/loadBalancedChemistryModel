@@ -68,12 +68,6 @@ class LoadBalancedChemistryModel
 
             // percent of own cells to send to processor toProc
             scalar percToSend=-1;
-
-            // start index in the cell list to send to toProc
-            label startCellInd=-1;
-
-            // end index in the cell list to send to toProc
-            label endCellInd=-1;
         
         // Constructor
 
@@ -110,13 +104,21 @@ private:
         scalar totalCpuTime_;
 
         //- Store processor balancing data, first entry is a list of sendData
-        //  information, second entry is the recv processor ID
+        //  information, second entry is a list of processor IDs of which 
+        //  data is received
         Tuple2
         <
             List<sendDataStruct>,
             List<label>
         > 
         sendAndReceiveData_;
+
+        //- List of size Pstream::nProcs() which is true if data is send to
+        List<bool> sendToProcessor_;
+
+        //- List of size Pstream::nProcs() which is true if data is received 
+        //- from processor
+        List<bool> receiveFromProcessor_;
 
         //- Needs to keep the buffer alive to not loose the information
         //  about send and receive sizes

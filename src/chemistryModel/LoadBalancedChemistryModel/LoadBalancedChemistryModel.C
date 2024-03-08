@@ -280,6 +280,27 @@ void Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>
 
     sendAndReceiveData_.first() = distributedLoadAllProcs[Pstream::myProcNo()];
     sendAndReceiveData_.second() = receiveDataFromProc[Pstream::myProcNo()];
+
+    // Create send and receive lists
+    sendToProcessor_.resize(Pstream::nProcs());
+    receiveFromProcessor_.resize(Pstream::nProcs());
+
+    // Set all to false
+    forAll(sendToProcessor_,i)
+    {
+        sendToProcessor_[i] = false;
+        receiveFromProcessor_[i] = false;
+    }
+
+    for (auto& sendInfoData : sendAndReceiveData_.first())
+    {
+        sendToProcessor_[sendInfoData.toProc] = true;
+    }
+
+    for (label procID : sendAndReceiveData_.second())
+    {
+        receiveFromProcessor_[procID] = true;
+    }
 }
 
 
@@ -485,8 +506,11 @@ Foam::scalar Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::solve
     updateCellDataList(deltaT);
 
     // Get percentage of particles to send/receive from other processors
-    if (iter_ >= maxIterUpdate_)
+    if (iter_++ >= maxIterUpdate_)
+    {
         updateProcessorBalancing();
+        iter_ = 0;
+    }
 
     List<sendDataStruct>& sendDataInfo = sendAndReceiveData_.first();
     const List<label>& recvProc = sendAndReceiveData_.second();
@@ -502,23 +526,13 @@ Foam::scalar Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::solve
         
         label end = cellDataList_.size();
         
-        if (iter_ >= maxIterUpdate_)
-        {
-            cellsToSend
-            (
-                cellDataList_,
-                totalCpuTime_*percToSend,
-                start,
-                end
-            );
-            
-            // Set end and start
-            sendDataInfoI.startCellInd = start;
-            sendDataInfoI.endCellInd = end;
-        }
-
-        start = sendDataInfoI.startCellInd;
-        end = sendDataInfoI.endCellInd;
+        cellsToSend
+        (
+            cellDataList_,
+            totalCpuTime_*percToSend,
+            start,
+            end
+        );
 
         // send particles 
         UOPstream toBuffer
@@ -549,16 +563,8 @@ Foam::scalar Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::solve
         start
     );
 
-
-    // Update every maxIterUpdate and reset iter count
-    if (iter_++ >= maxIterUpdate_)
-    {
-        pBufs_.update();
-        iter_=0;
-    }
-
-    // Exchange data
-    pBufs_.finishedSends();
+    // Exchange data and set send/recv relationship
+    pBufs_.finishedSends(sendToProcessor_,receiveFromProcessor_);
 
     DynamicList<baseDataContainer> processorCells;
     

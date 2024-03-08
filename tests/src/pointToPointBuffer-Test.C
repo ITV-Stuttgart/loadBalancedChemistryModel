@@ -51,7 +51,7 @@ Author
 
 TEST_CASE("pointToPointBuffer-Test")
 {
- // =========================================================================
+    // =========================================================================
     //                      Prepare Case
     // =========================================================================
     // Replace setRootCase.H for Catch2   
@@ -161,6 +161,10 @@ TEST_CASE("pointToPointBuffer-Test")
         }
     }
 
+    // Use send/recv Lists
+    List<bool> sendToProcessor(Pstream::nProcs(),false);
+    List<bool> receiveFromProcessor(Pstream::nProcs(),false);
+
     // Create the UOPstream object
     if (Pstream::myProcNo() == 0)
     {
@@ -168,6 +172,9 @@ TEST_CASE("pointToPointBuffer-Test")
         UOPstream toBuffer(pBuf.commsType(),toProc,pBuf.sendBuffer(toProc),pBuf.tag(),pBuf.comm(),false);
 
         toBuffer << myData;
+        sendToProcessor[toProc] = true;
+        // Here we receive from the processor we send to
+        receiveFromProcessor[toProc] = true; 
     }
     else if (Pstream::myProcNo() == 3)
     {
@@ -175,13 +182,12 @@ TEST_CASE("pointToPointBuffer-Test")
         UOPstream toBuffer(pBuf.commsType(),toProc,pBuf.sendBuffer(toProc),pBuf.tag(),pBuf.comm(),false);
 
         toBuffer << myData;
+        sendToProcessor[toProc] = true;
+        // Here we receive from the processor we send to
+        receiveFromProcessor[toProc] = true; 
     }
 
-    // Update the send and receive buffers
-    // Only exchange sizes
-    pBuf.update(true);
-
-    pBuf.finishedSends();
+    pBuf.finishedSends(sendToProcessor,receiveFromProcessor);
 
     // Now read data 
     // Create the UOPstream object

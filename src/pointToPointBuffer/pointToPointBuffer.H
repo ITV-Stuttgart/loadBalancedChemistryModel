@@ -86,10 +86,13 @@ class pointToPointBuffer
         //- Check that the buffer is the expected size
         void checkBufferSize();
 
-        //- Echange the send/recv buffer sizes without updatind the relationship
-        //  between sending and receiving processors
-        //  Note: send/recv coupling is read from previous send/recv sizes
-        void exchangeBufferSizes();
+        //- Echange the send/recv buffer sizes based on the given send 
+        //  and receive lists
+        void exchangeBufferSizes
+        (
+            const List<bool>& sendToProcessor,
+            const List<bool>& receiveFromProcessor
+        );
 
     public:
     
@@ -107,11 +110,20 @@ class pointToPointBuffer
 
         //- Update the send and receive buffers based on the current 
         //  sendBufferList
-        //  
-        void update(const bool onlyExchangeSizes=false);
+        void update();
 
         //- Exchange all information
+        //  Requires update() to be called if the buffer changed
         void finishedSends();
+
+        //- Send the buffers to the processors defined by sendToProcessor
+        //  and receiveFromProcessor
+        //  Uses exchangeBufferSizes
+        void finishedSends
+        (
+            const List<bool>& sendToProcessor,
+            const List<bool>& receiveFromProcessor
+        );
 
         //- Switch send and receive buffer sizes
         //  Helps for cases when data is send for computation and then received

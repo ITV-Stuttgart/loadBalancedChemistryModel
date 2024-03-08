@@ -270,6 +270,27 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>
 
     sendAndReceiveData_.first() = distributedLoadAllProcs[Pstream::myProcNo()];
     sendAndReceiveData_.second() = receiveDataFromProc[Pstream::myProcNo()];
+
+    // Create send and receive lists
+    sendToProcessor_.resize(Pstream::nProcs());
+    receiveFromProcessor_.resize(Pstream::nProcs());
+
+    // Set all to false
+    forAll(sendToProcessor_,i)
+    {
+        sendToProcessor_[i] = false;
+        receiveFromProcessor_[i] = false;
+    }
+
+    for (auto& sendInfoData : sendAndReceiveData_.first())
+    {
+        sendToProcessor_[sendInfoData.toProc] = true;
+    }
+
+    for (label procID : sendAndReceiveData_.second())
+    {
+        receiveFromProcessor_[procID] = true;
+    }
 }
 
 
@@ -738,8 +759,11 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
     }
     else
     {
-        if (iter_ >= maxIterUpdate_)
+        if (iter_++ >= maxIterUpdate_)
+        {
             updateProcessorBalancing();
+            iter_ = 0;
+        }
 
         const List<sendDataStruct>& sendDataInfo = sendAndReceiveData_.first();
         const List<label>& recvProc = sendAndReceiveData_.second();
@@ -792,15 +816,7 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
             start
         );
 
-        if (iter_++ >= maxIterUpdate_)
-        {
-            pBufs_.update(false);
-            iter_ = 0;
-        }
-        else
-            pBufs_.update(true); // Exchange sizes only -- do not call all-to-all
-
-        pBufs_.finishedSends();
+        pBufs_.finishedSends(sendToProcessor_,receiveFromProcessor_);
 
         DynamicList<TDACDataContainer> processorCells;
         
