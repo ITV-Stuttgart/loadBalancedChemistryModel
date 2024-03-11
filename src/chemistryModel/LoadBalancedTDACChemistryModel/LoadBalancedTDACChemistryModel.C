@@ -200,6 +200,8 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>
         
         scalar cpuTimeOverhead = cpuTimeProcI - averageCpuTime;
 
+        if (cpuTimeOverhead < 0)
+            continue;
 
         // Loop over the other processors and distribute the load
         // in reverse order
@@ -359,7 +361,6 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::updateTot
         addToTableCpuTime_ += cDataPtr->addToTableCpuTime();
         totalCpuTime_ += (cDataPtr->cpuTime()+cDataPtr->addToTableCpuTime());
     }
-
 }
 
 
@@ -743,6 +744,8 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
         }
     }
 
+    // Update total cpu time based on the current cell list
+    updateTotalCpuTime(cellList); 
 
     // ========================================================================
     // Solve for cells that were not found in the table
@@ -753,8 +756,6 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
     if (firstTime_)
     {
         solveCellList(cellList,true);
-        updateTotalCpuTime(cellList); 
-
         firstTime_ = false;
     }
     else
@@ -977,9 +978,6 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
                 (c[i] - c0[i])*this->specieThermo_[i].W()/deltaT[celli];
         }
     }
-
-
-    updateTotalCpuTime(cellList); 
 
     if (this->mechRed_->log() || this->tabulation_->log())
     {
