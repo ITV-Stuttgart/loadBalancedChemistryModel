@@ -49,7 +49,7 @@ Author
 #include "pointToPointBuffer.H"
 
 
-TEST_CASE("pointToPointBuffer-Test")
+TEST_CASE("pointToPointBuffer-Test","[Pstream]")
 {
     // =========================================================================
     //                      Prepare Case

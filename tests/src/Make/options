@@ -3,10 +3,12 @@ EXE_INC = \
     -I$(LIB_SRC)/finiteVolume/lnInclude \
     -I$(LIB_SRC)/meshTools/lnInclude \
     -I$(LIB_SRC)/transportModels/compressible/lnInclude \
-    -I$(FOAM_SRC)/thermophysicalModels/specie/lnInclude \
-    -I$(FOAM_SRC)/thermophysicalModels/basic/lnInclude \
+    -I$(LIB_SRC)/thermophysicalModels/specie/lnInclude \
+    -I$(LIB_SRC)/thermophysicalModels/basic/lnInclude \
     -I$(LIB_SRC)/thermophysicalModels/thermophysicalProperties/lnInclude \
-    -I$(FOAM_SRC)/thermophysicalModels/reactionThermo/lnInclude \
+    -I$(LIB_SRC)/thermophysicalModels/reactionThermo/lnInclude \
+    -I$(LIB_SRC)/thermophysicalModels/chemistryModel/lnInclude \
+    -I$(LIB_SRC)/ODE/lnInclude \
     -I../../src/lnInclude \
     -I../Catch2_install/include \
     -g -DFULLDEBUG \
@@ -20,6 +22,8 @@ EXE_LIBS = \
     -lthermophysicalProperties \
     -lfiniteVolume \
     -lmeshTools \
+    -lODE \
+    -lchemistryModel \
     -L$(FOAM_USER_LIBBIN) \
     -lloadBalancedChemistryModel \
     -L../Catch2_install/lib \

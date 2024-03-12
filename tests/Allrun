@@ -1,0 +1,21 @@
+#!/bin/bash
+
+set -e
+
+testCases=("chemistry" "Pstream")
+
+projectDir=$(pwd)
+cd Cases/
+
+
+
+for case in "${testCases[@]}"; do
+    cd "${projectDir}/Cases/Case-${case}"
+    blockMesh > /dev/null
+    decomposePar -force > /dev/null
+    mpirun -np 4 ${projectDir}/unitTest.exe "[$case]" --parallel
+done
+
+
+
+

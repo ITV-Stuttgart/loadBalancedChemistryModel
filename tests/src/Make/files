@@ -1,6 +1,8 @@
 main.C
 
 pointToPointBuffer-Test.C
+standardChemistryModel-Test.C
+TDACChemistryModel-Test.C
 
 EXE = ../unitTest.exe
 
