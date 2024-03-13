@@ -30,7 +30,8 @@ License
 
 
 template<class ReactionThermo, class ThermoType>
-Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::LoadBalancedChemistryModel
+Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>
+::LoadBalancedChemistryModel
 (
     ReactionThermo& thermo
 )
@@ -181,8 +182,6 @@ void Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>
         averageCpuTime += sortedCpuTimeOnProcessors[i].first;
     }
     averageCpuTime /= numProcs;
-    
-    Info << "Average CPU time : "<<averageCpuTime<<endl;
 
     // list of the distributed load for all processors
     List<DynamicList<sendDataStruct>> distributedLoadAllProcs(numProcs);
@@ -306,7 +305,8 @@ void Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>
 
 template<class ReactionThermo, class ThermoType>
 Foam::List<std::pair<scalar,Foam::Pair<label>>> 
-Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::getSortedCPUTimesOnProcessor() const
+Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>
+::getSortedCPUTimesOnProcessor() const
 {
     // Number of processors 
     const scalar numProcs = Pstream::nProcs();
@@ -343,7 +343,8 @@ Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::getSortedCPUTimesO
 
 
 template<class ReactionThermo, class ThermoType>
-void Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::updateTotalCpuTime
+void Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>
+::updateTotalCpuTime
 (
     const DynamicList<baseDataContainer>& reactCellList
 )
@@ -442,15 +443,6 @@ Foam::scalar Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::solve
     const DeltaTType& deltaT
 )
 {
-    // if it is not a prallel run exit with an error
-    if (!Pstream::parRun())
-        FatalError 
-            << "Dynamic load balancing can only be activated for parallel "
-            << "simulations." << nl
-            << "Please run the simulation in parallel"
-            << exit(FatalError);
-       
-
     BasicChemistryModel<ReactionThermo>::correct();
 
     scalar deltaTMin = GREAT;

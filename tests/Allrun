@@ -1,5 +1,37 @@
 #!/bin/bash
 
+# ==============================================================================
+# Support Functions 
+# ==============================================================================
+
+
+# Checks if the 
+__checkCPU()
+{
+    nProcs=$(nproc)
+    nProcs=$(echo $nProcs | sed -e 's/ //g' )
+    nProcs=$(($nProcs))
+
+    if [[ $1 -gt $nProcs ]]; then
+        echo "1"
+        return 0
+    fi
+    
+    echo "0"
+    return 0
+}
+
+# ==============================================================================
+# Start of Script
+# ==============================================================================
+
+# First check if the parallel runs can be executed:
+if [[ $(__checkCPU "4") == 1 ]]; then
+    RED='\033[0;31m'
+    echo -e "${RED}There are not enough slots available in the system to satisfy the 4\nslots that were requested by the application:"
+    exit 1
+fi
+
 set -e
 
 testCases=("chemistry" "Pstream")
@@ -7,12 +39,14 @@ testCases=("chemistry" "Pstream")
 projectDir=$(pwd)
 cd Cases/
 
-
-
 for case in "${testCases[@]}"; do
     cd "${projectDir}/Cases/Case-${case}"
     blockMesh > /dev/null
     decomposePar -force > /dev/null
+    # If it is the chemistry case check first single core, than parallel
+    if [[ ${case} == "chemistry" ]]; then
+        ${projectDir}/unitTest.exe "[$case]"
+    fi
     mpirun -np 4 ${projectDir}/unitTest.exe "[$case]" --parallel
 done
 

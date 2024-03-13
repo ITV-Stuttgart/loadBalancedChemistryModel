@@ -118,7 +118,8 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::addCell
 
 
 template<class ReactionThermo, class ThermoType>
-void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::cellsToSend
+void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>
+::cellsToSend
 (
     const DynamicList<TDACDataContainer*>& cellList,
     const scalar cpuTimeToSend,
@@ -153,14 +154,6 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>
 
     auto sortedCpuTimeOnProcessors = getSortedCPUTimesOnProcessor();
 
-    // if (Pstream::master())
-    // {
-    //     Pout << "procID\ttotalTime\tisatSearchTime\taddToTable\t "<<endl;
-    //     for (auto& e : sortedCpuTimeOnProcessors)
-    //         Pout <<e.second[0]<<"\t"<< e.first << "\t"<< e.second[3]<<"\t"<<e.second[2]<<endl;
-    // }
-
-
     // calculate average time spent on each cpu
     scalar averageCpuTime = 0;
     forAll(sortedCpuTimeOnProcessors,i)
@@ -168,9 +161,6 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>
         averageCpuTime += sortedCpuTimeOnProcessors[i].first;
     }
     averageCpuTime /= numProcs;
-
-
-    Info << "Average CPU time : "<<averageCpuTime<<endl;
 
     // list of the distributed load for all processors
     List<DynamicList<sendDataStruct>> distributedLoadAllProcs(numProcs);
@@ -298,7 +288,8 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>
 
 template<class ReactionThermo, class ThermoType>
 Foam::List<std::pair<scalar,Foam::List<scalar>>> 
-Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::getSortedCPUTimesOnProcessor() const
+Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>
+::getSortedCPUTimesOnProcessor() const
 {
     // Number of processors 
     const scalar numProcs = Pstream::nProcs();
@@ -348,7 +339,8 @@ Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::getSortedCPUTi
 
 
 template<class ReactionThermo, class ThermoType>
-void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::updateTotalCpuTime
+void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>
+::updateTotalCpuTime
 (
     const DynamicList<TDACDataContainer*>& cellList
 )
@@ -443,7 +435,8 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solveCell
 
 
 template<class ReactionThermo, class ThermoType>
-void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solveCellList
+void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>
+::solveCellList
 (
     UList<TDACDataContainer*>& cellList,
     const bool isLocal
@@ -523,7 +516,8 @@ bool Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>
 
 
 template<class ReactionThermo, class ThermoType>
-void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::addCellToTable
+void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>
+::addCellToTable
 (
     const TDACDataContainer& cData,
     const bool isLocal,
@@ -622,21 +616,12 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::addCellTo
 
 template<class ReactionThermo, class ThermoType>
 template<class DeltaTType>
-Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solve
+Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>
+::solve
 (
     const DeltaTType& deltaT
 )
 {
-    // if it is not a prallel run exit with an error
-    // if (!Pstream::parRun())
-    //     FatalError 
-    //         << "Dynamic load balancing can only be activated for parallel "
-    //         << "simulations." << nl
-    //         << "Please run the simulation in parallel"
-    //         << exit(FatalError);
-        
-
-
     // List of cells that need to be solved
     DynamicList<TDACDataContainer*> cellList(cellDataField_.size());
 
@@ -1053,7 +1038,8 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
 
 
 template<class ReactionThermo, class ThermoType>
-Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solve
+Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>
+::solve
 (
     const scalar deltaT
 )
@@ -1068,7 +1054,8 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::s
 
 
 template<class ReactionThermo, class ThermoType>
-Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>::solve
+Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>
+::solve
 (
     const scalarField& deltaT
 )
