@@ -24,7 +24,7 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Author
-    Jan Wilhelm Gärtner <jan.gaertner@outlook.de> Copyright (C) 2022
+    Jan Wilhelm Gärtner <jan.gaertner@outlook.de> Copyright (C) 2024
 
 \*---------------------------------------------------------------------------*/
 

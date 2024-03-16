@@ -32,6 +32,8 @@ Description
 SourceFiles
     LoadBalancedTDACChemistryModel.H
     LoadBalancedTDACChemistryModel.C
+Author
+    Jan Wilhelm Gärtner <jan.gaertner@outlook.de> Copyright (C) 2024
 
 \*---------------------------------------------------------------------------*/
  

@@ -33,6 +33,9 @@ SourceFiles
     LoadBalancedChemistryModel.H
     LoadBalancedChemistryModel.C
 
+Author
+    Jan Wilhelm Gärtner <jan.gaertner@outlook.de> Copyright (C) 2024
+
 \*---------------------------------------------------------------------------*/
  
 #ifndef LoadBalancedChemistryModel_H

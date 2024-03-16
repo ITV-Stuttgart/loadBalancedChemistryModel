@@ -39,7 +39,7 @@ SourceFiles
     pointToPointBuffer.C
 
 Author
-    Jan Wilhelm Gärtner <jan.gaertner@outlook.de> Copyright (C) 2022
+    Jan Wilhelm Gärtner <jan.gaertner@outlook.de> Copyright (C) 2024
 
 \*---------------------------------------------------------------------------*/
 
