@@ -26,10 +26,10 @@ a git sub-module.
 3. Alternative: Go to the test case and execute the respective
    test with the correct tag (For tags see Catch2 manual).
    An example for testing the chemistry models in parallel is:
-   ```bash
+```bash
 cd Cases/Case-chemistry
 blockMesh
 decomposePar 
 mpirun -np 4 ../../unitTests.exe [chemistry] --parallel
-   ```
+```
 

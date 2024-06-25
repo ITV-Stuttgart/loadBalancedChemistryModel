@@ -238,7 +238,10 @@ public:
     // Constructors
 
         //- No copy construct
-        LoadBalancedTDACChemistryModel(const LoadBalancedTDACChemistryModel&) = delete;
+        LoadBalancedTDACChemistryModel
+        (
+            const LoadBalancedTDACChemistryModel&
+        ) = delete;
   
         //- No copy assignment
         void operator=(const LoadBalancedTDACChemistryModel&) = delete;

@@ -61,13 +61,15 @@ int main(int argc, char* argv[])
 
     using namespace Catch::Clara;
     auto cli
-    = session.cli()                  // Get Catch2's command line parser
-    | Opt( parallelRun ) // bind variable to a new option, with a hint string
-        ["-p"]["--parallel"]         // the option names it will respond to
-        ("parallel run")            // description string for the help output
-    | Opt( casePath, "casePath" ) // bind variable to a new option, with a hint string
-        ["-case"]["--case"]
-        ("provide OpenFOAM case path");            // description string for the help output
+    = session.cli()                     // Get Catch2's command line parser
+    | Opt( parallelRun )                // bind variable to a new option, with
+                                        // a hint string the option
+        ["-p"]["--parallel"]            // names it will respond to
+        ("parallel run")                // description string for the help
+    | Opt( casePath, "casePath" )       // output bind variable to a new option,
+        ["-case"]["--case"]             // with a hint string
+        ("provide OpenFOAM case path"); // description string for the help
+                                        // output
 
     // Now pass the new composite back to Catch2 so it uses that
     session.cli( cli );

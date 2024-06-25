@@ -93,14 +93,30 @@ TEST_CASE("pointToPointBuffer-Test","[Pstream]")
     if (Pstream::myProcNo() == 0)
     {
         label toProc = 3;
-        UOPstream toBuffer(pBuf.commsType(),toProc,pBuf.sendBuffer(toProc),pBuf.tag(),pBuf.comm(),false);
+        UOPstream toBuffer
+        (
+            pBuf.commsType(),
+            toProc,
+            pBuf.sendBuffer(toProc),
+            pBuf.tag(),
+            pBuf.comm(),
+            false
+        );
 
         toBuffer << myData;
     }
     else if (Pstream::myProcNo() == 3)
     {
         label toProc = 0;
-        UOPstream toBuffer(pBuf.commsType(),toProc,pBuf.sendBuffer(toProc),pBuf.tag(),pBuf.comm(),false);
+        UOPstream toBuffer
+        (
+            pBuf.commsType(),
+            toProc,
+            pBuf.sendBuffer(toProc),
+            pBuf.tag(),
+            pBuf.comm(),
+            false
+        );
 
         toBuffer << myData;
     }
@@ -117,7 +133,16 @@ TEST_CASE("pointToPointBuffer-Test","[Pstream]")
     {
         label fromProc = 3;
         label receiveBufferPosition=0;
-        UIPstream fromBuffer(pBuf.commsType(),fromProc,pBuf.recvBuffer(fromProc),receiveBufferPosition,pBuf.tag(),pBuf.comm(),false);
+        UIPstream fromBuffer
+        (
+            pBuf.commsType(),
+            fromProc,
+            pBuf.recvBuffer(fromProc),
+            receiveBufferPosition,
+            pBuf.tag(),
+            pBuf.comm(),
+            false
+        );
 
         fromBuffer >> recvData;
         REQUIRE(recvData.size() == 5);
@@ -130,7 +155,16 @@ TEST_CASE("pointToPointBuffer-Test","[Pstream]")
     {
         label fromProc = 0;
         label receiveBufferPosition=0;
-        UIPstream fromBuffer(pBuf.commsType(),fromProc,pBuf.recvBuffer(fromProc),receiveBufferPosition,pBuf.tag(),pBuf.comm(),false);
+        UIPstream fromBuffer
+        (
+            pBuf.commsType(),
+            fromProc,
+            pBuf.recvBuffer(fromProc),
+            receiveBufferPosition,
+            pBuf.tag(),
+            pBuf.comm(),
+            false
+        );
 
         fromBuffer >> recvData;
         REQUIRE(recvData.size() == 10);
@@ -171,7 +205,15 @@ TEST_CASE("pointToPointBuffer-Test","[Pstream]")
     if (Pstream::myProcNo() == 0)
     {
         label toProc = 3;
-        UOPstream toBuffer(pBuf.commsType(),toProc,pBuf.sendBuffer(toProc),pBuf.tag(),pBuf.comm(),false);
+        UOPstream toBuffer
+        (
+            pBuf.commsType(),
+            toProc,
+            pBuf.sendBuffer(toProc),
+            pBuf.tag(),
+            pBuf.comm(),
+            false
+        );
 
         toBuffer << myData;
         sendToProcessor[toProc] = true;
@@ -181,7 +223,15 @@ TEST_CASE("pointToPointBuffer-Test","[Pstream]")
     else if (Pstream::myProcNo() == 3)
     {
         label toProc = 0;
-        UOPstream toBuffer(pBuf.commsType(),toProc,pBuf.sendBuffer(toProc),pBuf.tag(),pBuf.comm(),false);
+        UOPstream toBuffer
+        (
+            pBuf.commsType(),
+            toProc,
+            pBuf.sendBuffer(toProc),
+            pBuf.tag(),
+            pBuf.comm(),
+            false
+        );
 
         toBuffer << myData;
         sendToProcessor[toProc] = true;
@@ -198,7 +248,16 @@ TEST_CASE("pointToPointBuffer-Test","[Pstream]")
     {
         label fromProc = 3;
         label receiveBufferPosition=0;
-        UIPstream fromBuffer(pBuf.commsType(),fromProc,pBuf.recvBuffer(fromProc),receiveBufferPosition,pBuf.tag(),pBuf.comm(),false);
+        UIPstream fromBuffer
+        (
+            pBuf.commsType(),
+            fromProc,
+            pBuf.recvBuffer(fromProc),
+            receiveBufferPosition,
+            pBuf.tag(),
+            pBuf.comm(),
+            false
+        );
 
         fromBuffer >> recvData;
         REQUIRE(recvData.size() == 8);
@@ -211,7 +270,16 @@ TEST_CASE("pointToPointBuffer-Test","[Pstream]")
     {
         label fromProc = 0;
         label receiveBufferPosition=0;
-        UIPstream fromBuffer(pBuf.commsType(),fromProc,pBuf.recvBuffer(fromProc),receiveBufferPosition,pBuf.tag(),pBuf.comm(),false);
+        UIPstream fromBuffer
+        (
+            pBuf.commsType(),
+            fromProc,
+            pBuf.recvBuffer(fromProc),
+            receiveBufferPosition,
+            pBuf.tag(),
+            pBuf.comm(),
+            false
+        );
 
         fromBuffer >> recvData;
         REQUIRE(recvData.size() == 15);

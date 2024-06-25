@@ -164,8 +164,10 @@ private:
         //  List[index].first:  CPU time required for last time step
         //  List[index].second: Returns an Foam::Pair<label> with
         //                        Pair.first():  processor ID
-        //                        Pair.second(): Number of particles on that processor 
-        List<std::pair<scalar,Pair<label>>> getSortedCPUTimesOnProcessor() const;
+        //                        Pair.second(): Number of particles on
+        //                                       that processor
+        List<std::pair<scalar,Pair<label>>>
+        getSortedCPUTimesOnProcessor() const;
         
         //- Update the totalCpuTime_ variable 
         void updateTotalCpuTime

@@ -40,7 +40,8 @@ Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>
 {
     auto dict = this->subDictOrAdd("LoadBalancedCoeffs");
 
-    minFractionOfCellsToSend_ = dict.template getOrDefault<scalar>("minFractionOfCellsToSend",0.02);
+    minFractionOfCellsToSend_ =
+        dict.template getOrDefault<scalar>("minFractionOfCellsToSend",0.02);
     maxIterUpdate_ = dict.template getOrDefault<label>("updateIter",0);
     Info << "updateIter: "<<maxIterUpdate_<<endl;
 
@@ -227,7 +228,11 @@ void Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>
             
             // Only send information to procK if it is larger than 2% of the
             // total average cell time
-            if ((std::min(capacityOfProcK,cpuTimeOverhead)/cpuTimeProcI) < minFractionOfCellsToSend_)
+            if
+            (
+                (std::min(capacityOfProcK,cpuTimeOverhead)/cpuTimeProcI)
+              < minFractionOfCellsToSend_
+            )
                 continue;
 
             if (newCapacity > 0)
@@ -384,7 +389,14 @@ void Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::solveCell
         while (timeLeft > SMALL)
         {
             scalar dt = timeLeft;
-            this->solve(this->c_, cellData.T(), cellData.p(), dt, cellData.deltaTChem());
+            this->solve
+            (
+                this->c_,
+                cellData.T(),
+                cellData.p(),
+                dt,
+                cellData.deltaTChem()
+            );
             timeLeft -= dt;
         }
 
@@ -394,7 +406,8 @@ void Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::solveCell
         for (label i=0; i<this->nSpecie_; i++)
         {
             cellData.RR()[i] =
-                (this->c_[i] - c0[i])*this->specieThermo_[i].W()/cellData.deltaT();
+                (this->c_[i] - c0[i])
+              * this->specieThermo_[i].W()/cellData.deltaT();
         }
     }
     else
@@ -427,7 +440,8 @@ void Foam::LoadBalancedChemistryModel<ReactionThermo, ThermoType>::solveCellList
         
         auto end = std::chrono::high_resolution_clock::now();
         
-        auto duration = (std::chrono::duration_cast<std::chrono::microseconds>(end-start));
+        auto duration =
+            (std::chrono::duration_cast<std::chrono::microseconds>(end-start));
 
         // Add the time required to solve this cell to the list 
         // as seconds

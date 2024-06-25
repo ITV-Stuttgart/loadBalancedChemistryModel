@@ -36,9 +36,18 @@ License
 namespace Foam
 {
     // Chemistry solvers based on sensibleEnthalpy
-    makeLoadBalancedChemistrySolverTypes(psiReactionThermo, constGasHThermoPhysics);
-    
-    makeLoadBalancedChemistrySolverTypes(psiReactionThermo, gasHThermoPhysics);
+    makeLoadBalancedChemistrySolverTypes
+    (
+        psiReactionThermo,
+        constGasHThermoPhysics
+    );
+
+    makeLoadBalancedChemistrySolverTypes
+    (
+        psiReactionThermo,
+        gasHThermoPhysics
+    );
+
     makeLoadBalancedChemistrySolverTypes
     (
         psiReactionThermo,
@@ -50,18 +59,43 @@ namespace Foam
         incompressibleGasHThermoPhysics
     )
     ;
-    makeLoadBalancedChemistrySolverTypes(psiReactionThermo, icoPoly8HThermoPhysics);
-    makeLoadBalancedChemistrySolverTypes(psiReactionThermo, constFluidHThermoPhysics);
+    makeLoadBalancedChemistrySolverTypes
+    (
+        psiReactionThermo,
+        icoPoly8HThermoPhysics
+    );
+
+    makeLoadBalancedChemistrySolverTypes
+    (
+        psiReactionThermo,
+        constFluidHThermoPhysics
+    );
+
     makeLoadBalancedChemistrySolverTypes
     (
         psiReactionThermo,
         constAdiabaticFluidHThermoPhysics
     );
-    makeLoadBalancedChemistrySolverTypes(psiReactionThermo, constHThermoPhysics);
+
+    makeLoadBalancedChemistrySolverTypes
+    (
+        psiReactionThermo,
+        constHThermoPhysics
+    );
 
 
-    makeLoadBalancedChemistrySolverTypes(rhoReactionThermo, constGasHThermoPhysics);
-    makeLoadBalancedChemistrySolverTypes(rhoReactionThermo, gasHThermoPhysics);
+    makeLoadBalancedChemistrySolverTypes
+    (
+        rhoReactionThermo,
+        constGasHThermoPhysics
+    );
+
+    makeLoadBalancedChemistrySolverTypes
+    (
+        rhoReactionThermo,
+        gasHThermoPhysics
+    );
+
     makeLoadBalancedChemistrySolverTypes
     (
         rhoReactionThermo,
@@ -72,19 +106,43 @@ namespace Foam
         rhoReactionThermo,
         incompressibleGasHThermoPhysics
     );
-    makeLoadBalancedChemistrySolverTypes(rhoReactionThermo, icoPoly8HThermoPhysics);
-    makeLoadBalancedChemistrySolverTypes(rhoReactionThermo, constFluidHThermoPhysics);
+    makeLoadBalancedChemistrySolverTypes
+    (
+        rhoReactionThermo,
+        icoPoly8HThermoPhysics
+    );
+
+    makeLoadBalancedChemistrySolverTypes
+    (
+        rhoReactionThermo,
+        constFluidHThermoPhysics
+    );
+
     makeLoadBalancedChemistrySolverTypes
     (
         rhoReactionThermo,
         constAdiabaticFluidHThermoPhysics
     );
-    makeLoadBalancedChemistrySolverTypes(rhoReactionThermo, constHThermoPhysics);
+    makeLoadBalancedChemistrySolverTypes
+    (
+        rhoReactionThermo,
+        constHThermoPhysics
+    );
 
 
     // Chemistry solvers based on sensibleInternalEnergy
-    makeLoadBalancedChemistrySolverTypes(psiReactionThermo, constGasEThermoPhysics);
-    makeLoadBalancedChemistrySolverTypes(psiReactionThermo, gasEThermoPhysics);
+    makeLoadBalancedChemistrySolverTypes
+    (
+        psiReactionThermo,
+        constGasEThermoPhysics
+    );
+
+    makeLoadBalancedChemistrySolverTypes
+    (
+        psiReactionThermo,
+        gasEThermoPhysics
+    );
+
     makeLoadBalancedChemistrySolverTypes
     (
         psiReactionThermo,
@@ -95,17 +153,41 @@ namespace Foam
         psiReactionThermo,
         incompressibleGasEThermoPhysics
     );
-    makeLoadBalancedChemistrySolverTypes(psiReactionThermo, icoPoly8EThermoPhysics);
-    makeLoadBalancedChemistrySolverTypes(psiReactionThermo, constFluidEThermoPhysics);
+    makeLoadBalancedChemistrySolverTypes
+    (
+        psiReactionThermo,
+        icoPoly8EThermoPhysics
+    );
+
+    makeLoadBalancedChemistrySolverTypes
+    (
+        psiReactionThermo,
+        constFluidEThermoPhysics
+    );
+
     makeLoadBalancedChemistrySolverTypes
     (
         psiReactionThermo,
         constAdiabaticFluidEThermoPhysics
     );
-    makeLoadBalancedChemistrySolverTypes(psiReactionThermo, constEThermoPhysics);
+    makeLoadBalancedChemistrySolverTypes
+    (
+        psiReactionThermo,
+        constEThermoPhysics
+    );
 
-    makeLoadBalancedChemistrySolverTypes(rhoReactionThermo, constGasEThermoPhysics);
-    makeLoadBalancedChemistrySolverTypes(rhoReactionThermo, gasEThermoPhysics);
+    makeLoadBalancedChemistrySolverTypes
+    (
+        rhoReactionThermo,
+        constGasEThermoPhysics
+    );
+
+    makeLoadBalancedChemistrySolverTypes
+    (
+        rhoReactionThermo,
+        gasEThermoPhysics
+    );
+
     makeLoadBalancedChemistrySolverTypes
     (
         rhoReactionThermo,
@@ -116,15 +198,28 @@ namespace Foam
         rhoReactionThermo,
         incompressibleGasEThermoPhysics
     );
-    makeLoadBalancedChemistrySolverTypes(rhoReactionThermo, icoPoly8EThermoPhysics);
+    makeLoadBalancedChemistrySolverTypes
+    (
+        rhoReactionThermo,
+        icoPoly8EThermoPhysics
+    );
 
-    makeLoadBalancedChemistrySolverTypes(rhoReactionThermo, constFluidEThermoPhysics);
+    makeLoadBalancedChemistrySolverTypes
+    (
+        rhoReactionThermo,
+        constFluidEThermoPhysics
+    );
+
     makeLoadBalancedChemistrySolverTypes
     (
         rhoReactionThermo,
         constAdiabaticFluidEThermoPhysics
     );
-    makeLoadBalancedChemistrySolverTypes(rhoReactionThermo, constEThermoPhysics);
+    makeLoadBalancedChemistrySolverTypes
+    (
+        rhoReactionThermo,
+        constEThermoPhysics
+    );
 }
 
 

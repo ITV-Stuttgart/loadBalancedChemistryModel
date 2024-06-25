@@ -42,7 +42,8 @@ Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>
     TDACChemistryModel<ReactionThermo, ThermoType>(thermo)
 {
     // Create the table for the remote cell computation
-    tabulationRemote_ = chemistryTabulationMethod<ReactionThermo, ThermoType>::New
+    tabulationRemote_ =
+    chemistryTabulationMethod<ReactionThermo, ThermoType>::New
     (
         *this,
         *this
@@ -461,7 +462,8 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>
 
         auto end = std::chrono::high_resolution_clock::now();
         
-        auto duration = (std::chrono::duration_cast<std::chrono::microseconds>(end-start));
+        auto duration =
+            (std::chrono::duration_cast<std::chrono::microseconds>(end-start));
 
         // Add the time required to solve this particle to the list 
         // as seconds
@@ -587,7 +589,11 @@ void Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>
             const label celli = cData.cellID();
 
             auto end = std::chrono::high_resolution_clock::now();
-            auto duration = (std::chrono::duration_cast<std::chrono::microseconds>(end-start));
+            auto duration =
+                (
+                    std::chrono::duration_cast<std::chrono::microseconds>
+                    (end-start)
+                );
             // Add the time to the cell data container
             cData.setAddToTableCpuTime(duration.count()*1.0E-6);
 
@@ -702,7 +708,11 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>
         // When tabulation is active (short-circuit evaluation for retrieve)
         // It first tries to retrieve the solution of the system with the
         // information stored through the tabulation method
-        if (this->tabulation_->active() && this->tabulation_->retrieve(phiq, Rphiq_))
+        if
+        (
+            this->tabulation_->active()
+         && this->tabulation_->retrieve(phiq, Rphiq_)
+        )
         {
             // Retrieved solution stored in Rphiq_
             for (label i=0; i<this->nSpecie(); ++i)
@@ -837,7 +847,10 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>
         }    
 
         // We need to create a pointer list for the solveCellList function
-        List<TDACDataContainer*> processorCellsPtr(processorCells.size(), nullptr);
+        List<TDACDataContainer*> processorCellsPtr
+        (
+            processorCells.size(), nullptr
+        );
 
         // We cannot create this pointer list in the for loop before, as each
         // resize of the dynamic list will invalidate the pointers. 
@@ -878,12 +891,13 @@ Foam::scalar Foam::LoadBalancedTDACChemistryModel<ReactionThermo, ThermoType>
             for (label k=0; k < receivedDataSizes[i]; k++)
                 toBuffer << processorCells[pI++];
         }
-        
+
         pBufs_.finishedSends();
         
         start = 0;
         label end = 0;
-        // Receive the particles --> now the sendDataInfo becomes the receive info
+        // Receive the particles
+        // --> now the sendDataInfo becomes the receive info
         for (auto& sendDataInfoI : sendDataInfo)
         {
             const label fromProc = sendDataInfoI.toProc;
