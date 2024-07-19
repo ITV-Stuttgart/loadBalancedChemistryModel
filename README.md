@@ -13,6 +13,13 @@ for OpenFOAM v2306. This library works with every OpenFOAM solver that uses
 the BasicChemistryModel of OpenFOAM. There are currently no known solvers which
 are not supported by this library.
 
+## Supported OpenFOAM Versions
+
+ * OpenFOAM v2312
+ * OpenFOAM v2306
+ * OpenFOAM v2212
+
+
 ## Compilation & Usage
 
 To compile the library execute following steps:
