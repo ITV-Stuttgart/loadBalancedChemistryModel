@@ -1,6 +1,8 @@
 > [!NOTE]
-> Please cite this work using the provided meta data from the provided CFF file.
-> ![Screenshot of the CFF button](CiteRepoImage.png)
+> When using this software please cite following article:
+> Jan Wilhelm Gärtner, Ali Shamooni, Thorsten Zirwes, Andreas Kronenburg,
+> "A Chemistry Load Balancing Model for OpenFOAM", *Computer Physics Communications*,
+> 2024, doi: 10.1016/j.cpc.2024.109322.
 
 ---
 
