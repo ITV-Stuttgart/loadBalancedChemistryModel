@@ -1,9 +1,24 @@
+> [!NOTE]
+> When using this software please cite following article:
+> Jan Wilhelm Gärtner, Ali Shamooni, Thorsten Zirwes, Andreas Kronenburg,
+> "A Chemistry Load Balancing Model for OpenFOAM", *Computer Physics Communications*,
+> 2024, doi: 10.1016/j.cpc.2024.109322.
+
+---
+
 # Load Balanced Chemistry Model 
 
 This library provides a load-balanced standard and TDAC chemistry model 
 for OpenFOAM v2306. This library works with every OpenFOAM solver that uses
 the BasicChemistryModel of OpenFOAM. There are currently no known solvers which
 are not supported by this library.
+
+## Supported OpenFOAM Versions
+
+ * OpenFOAM v2312
+ * OpenFOAM v2306
+ * OpenFOAM v2212
+
 
 ## Compilation & Usage
 
