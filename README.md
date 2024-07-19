@@ -1,3 +1,9 @@
+> [!NOTE]
+> Please cite this work using the provided meta data from the provided CFF file.
+> ![Screenshot of the CFF button](CiteRepoImage.png)
+
+---
+
 # Load Balanced Chemistry Model 
 
 This library provides a load-balanced standard and TDAC chemistry model 
