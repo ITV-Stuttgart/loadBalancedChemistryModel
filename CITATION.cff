@@ -1,16 +1,24 @@
 cff-version: 1.2.0
-title: Load Balanced Chemistry Model for OpenFOAM
+title: A Chemistry Load Balancing Model for OpenFOAM
 message: 'If you use this software, please cite it as below'
-type: software
+type: article
+doi: "https://doi.org/10.1016/j.cpc.2024.109322"
+url: "https://github.com/ITV-Stuttgart/loadBalancedChemistryModel"
+year: 2024
+journal: "Computer Physics Communications"
 authors:
   - given-names: Jan Wilhelm
     family-names: Gärtner
     email: jan-wilhelm.gaertner@itv.uni-stuttgart.de
-    affiliation: 'University of Stuttgart '
+    affiliation: 'University of Stuttgart'
+    orcid: "https://orcid.org/0000-0002-1718-7735"
   - given-names: Ali 
     family-names: Shamooni
     email: ali.shamooni@itv.uni-stuttgart.de
-    affiliation: 'University of Stuttgart '
+    affiliation: 'University of Stuttgart'
+  - given-names: Thorsten
+    family-names: Zirwes
+    affiliation: University of Stuttgart
   - given-names: Andreas
     family-names: Kronenburg
     email: andreas.kronenburg@itv.uni-stuttgart.de
