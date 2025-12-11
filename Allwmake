@@ -1,6 +1,16 @@
 #!/bin/bash
 cd ${0%/*} || exit 1    # run from this directory
 
+source supportFunctions.sh
+
+if compileTDACLibrary; then
+    export COMPILE_TDAC="-DCOMPILE_TDAC"
+    export MAKE_TDAC_CHEMISTRY_MODELS_C="chemistryModel/LoadBalancedTDACChemistryModel/makeLoadBalancedTDACChemistryModels.C"
+else
+    export COMPILE_TDAC=""
+    export MAKE_TDAC_CHEMISTRY_MODELS_C=""
+fi
+
 cd src && wmake ${@}
 
 # ----------------------------------------------------------------- end-of-file

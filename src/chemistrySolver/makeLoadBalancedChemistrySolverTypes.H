@@ -39,6 +39,8 @@ License
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
+
+#if defined(COMPILE_TDAC)
 #define makeLoadBalancedChemistrySolverType(SS, Comp, Thermo)                  \
                                                                                \
     typedef SS<LoadBalancedChemistryModel<Comp, Thermo>> SS##Comp##Thermo;     \
@@ -73,7 +75,26 @@ License
         add##thermo##ConstructorToTable<TDAC##SS##Comp##Thermo>                \
         add##TDAC##SS##Comp##Thermo##thermo##ConstructorTo##BasicChemistryModel\
 ##Comp##Table_;
+#else
+#define makeLoadBalancedChemistrySolverType(SS, Comp, Thermo)                  \
+                                                                               \
+    typedef SS<LoadBalancedChemistryModel<Comp, Thermo>> SS##Comp##Thermo;     \
+                                                                               \
+    defineTemplateTypeNameAndDebugWithName                                     \
+    (                                                                          \
+        SS##Comp##Thermo,                                                      \
+        (#SS"<" + word(LoadBalancedChemistryModel<Comp, Thermo>::typeName_())  \
+        + "<" + word(Comp::typeName_()) + "," + Thermo::typeName()             \
+        + ">>").c_str(),                                                       \
+        0                                                                      \
+    );                                                                         \
+                                                                               \
+    BasicChemistryModel<Comp>::                                                \
+        add##thermo##ConstructorToTable<SS##Comp##Thermo>                      \
+        add##SS##Comp##Thermo##thermo##ConstructorTo##BasicChemistryModel##Comp\
+##Table_;
 
+#endif
 
 #define makeLoadBalancedChemistrySolverTypes(Comp, Thermo)                     \
                                                                                \

@@ -269,7 +269,4 @@ namespace Foam
         rhoReactionThermo,
         constEThermoPhysics
     );
-
-
-
 }

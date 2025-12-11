@@ -22,16 +22,15 @@ are not supported by this library.
 
 ## Compilation & Usage
 
-To compile the library execute following steps:
+To compile the library execute the `./Allwmake` script. This script accepts all 
+arguments that you can pass to wmake. E.g., to compile in parallel run 
+`./Allwmake -j` for a debug compilation use `./Allwmake -debug`
 
- 1. Execute the `./PrepareOpenFOAM.sh` script.
-    This script will add the protected keyword to OpenFOAM's TDAC chemistry
-    model. This is required to avoid significant code duplication and to use
-    the TDAC member functions for the load-balanced TDAC model.
- 2. Run the `./Allwmake` script. 
-    This script accepts all arguments that you can pass to wmake. 
-    E.g., to compile in parallel run `./Allwmake -j` for a debug compilation
-    use `./Allwmake -debug`
+In addition this script checks if it can add the protected keyword to OpenFOAM's 
+TDAC chemistry model. This is required to avoid significant code duplication and
+to use the TDAC member functions for the load-balanced TDAC model.
+If it cannot modify the keyword -- e.g., if the file is write protected -- the
+load-balanced TDAC library is not built.
 
 ### Usage
 
